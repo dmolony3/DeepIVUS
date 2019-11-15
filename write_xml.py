@@ -44,13 +44,14 @@ def label_contours(image, levels):
 
 
 def keep_largest_contour(contours, image_shape):
-    # this function returns the largest contour (num of points) in a list of contours
+    # this function returns the largest contour (num of points) as a numpy array
     max_length = 0
+    keep_contour = [[], []]
     for contour in contours:
         if keep_valid_contour(contour, image_shape):
             if len(contour[0]) > max_length:
-                keep_contour = contour
-                max_length = len(contour[0])
+                keep_contour = [list(contour[1, :]),  list(contour[0, :])]
+                max_length = len(contour[0])            
 
     return keep_contour
 
@@ -61,7 +62,7 @@ def keep_valid_contour(contour, image_shape):
     return bbPath.contains_point(centroid)
 	
 def keep_central_contour(contours, image_shape):
-    # this function returns the contour with its centroid closest to the image centroid
+    # deprecated, this function returns the contour with its centroid closest to the image centroid
     centroids = np.zeros((len(contours), 2))
     for j, contour in enumerate(contours):
         centroids[j, :] = [np.mean(contour[0, :]), np.mean(contour[1, :])]
@@ -71,32 +72,39 @@ def keep_central_contour(contours, image_shape):
     return keep_contour
 	
 def get_contours(preds, levels, image_shape):
+    """Extracts contours from masked images. Returns x and y coodinates"""
     # get contours for each image
-    lumen_pred = []
-    plaque_pred = []
+    lumen_pred = [[], []]
+    plaque_pred = [[], []]
     x = []
     y = []
     # convert contours to x and y points where every second entry in x and y are outer contours
     for i in range(preds.shape[0]):
-        if preds[i, :, :].max() > 0:
+        if np.any(preds[i, :, :] == 1):
             lumen, plaque = label_contours(preds[i, :, :], levels)
             # return the contour with the largest number of points
-            keep_lumen = keep_largest_contour(lumen, image_shape)
-            keep_plaque = keep_largest_contour(plaque, image_shape)
+            keep_lumen_x, keep_lumen_y = keep_largest_contour(lumen, image_shape)
+            keep_plaque_x, keep_plaque_y = keep_largest_contour(plaque, image_shape)
+            x.append(keep_lumen_x)
+            y.append(keep_lumen_y)
+
+            x.append(keep_plaque_x)
+            y.append(keep_plaque_y)
         else:
-            keep_lumen = []
-            keep_plaque = []
-        x.append(keep_lumen[1, :])
-        y.append(keep_lumen[0, :])
-        x.append(keep_plaque[1, :])
-        y.append(keep_plaque[0, :])
-        lumen_pred.append(keep_lumen)
-        plaque_pred.append(keep_plaque)
+            x.append([])
+            y.append([])
+            x.append([])
+            y.append([])
+        lumen_pred[0].append(x[-2])
+        lumen_pred[1].append(y[-2])
+        plaque_pred[0].append(x[-1])
+        plaque_pred[1].append(y[-1])        
+
     return x, y, lumen_pred, plaque_pred
 
-def write_xml(x, y, preds, resolution, speed, frames, pname):
+def write_xml(x, y, dims, resolution, speed, frames, pname):
     """write an xml file of contour data"""
-    num_frames = preds.shape[0]
+    num_frames = dims[0]
     root = et.Element('AnalysisState')
     analyzedfilename = et.SubElement(root, 'AnalyzedFileName')
     analyzedfilename.text = 'FILE0000'
@@ -123,9 +131,9 @@ def write_xml(x, y, preds, resolution, speed, frames, pname):
   
     imagestate = et.SubElement(root, 'ImageState')
     xdim = et.SubElement(imagestate, 'Xdim')
-    xdim.text = str(preds.shape[1])
+    xdim.text = str(dims[1])
     ydim = et.SubElement(imagestate, 'Ydim')
-    ydim.text = str(preds.shape[2])
+    ydim.text = str(dims[2])
     numberofframes = et.SubElement(imagestate, 'NumberOfFrames')
     numberofframes.text = str(num_frames)
     firstframeloaded = et.SubElement(imagestate, 'FirstFrameLoaded')
@@ -240,5 +248,5 @@ if __name__ == '__main__':
     preds = mask_image(preds, catheter)
 
     x, y, lumen_pred, plaque_pred = get_contours(preds, levels, image_shape)
-    write_xml(x, y, preds, resolution, speed, frames, pname)
+    write_xml(x, y, preds.shape, resolution, speed, frames, pname)
 
