@@ -1,6 +1,6 @@
 <p align="center">
   <br> 
-  <img src=/Media/DeepIVUS_logo.png">
+  <img src="/Media/DeepIVUS_logo.png">
   <br>
 <p>
 <h3 align="center">A Platform for Coronary Artery Intravascular Ultrasound Segmentation and Analysis </h3>
