@@ -7,8 +7,6 @@ import read_xml, pydicom as dcm
 from IVUS_gating import *
 from IVUS_prediction import predict
 from write_xml import *
-from PIL import Image as im
-import matplotlib.pyplot as plt
 
 class Communicate(QObject):
     updateBW = pyqtSignal(int)
@@ -181,7 +179,7 @@ class Master(QMainWindow):
         self.hideBox = QCheckBox('Hide Contours')
         self.hideBox.setChecked(True)
         self.hideBox.stateChanged[int].connect(self.changeState)
-        self.useGatedBox = QCheckBox('Display Gated Frames')
+        self.useGatedBox = QCheckBox('Gated Frames')
         self.useGatedBox.stateChanged[int].connect(self.useGated)
 
         self.wid = Display()
@@ -264,26 +262,27 @@ class Master(QMainWindow):
         options = QFileDialog.DontUseNativeDialog
         fileName, _ = QFileDialog.getOpenFileName(self, "QFileDialog.getOpenFileName()", "", "DICOM files (*.dcm);;All files (*)", options=options)
 
-        self.dicom = dcm.read_file(fileName)
-        self.images = self.dicom.pixel_array
-        self.slider.setMaximum(self.dicom.NumberOfFrames-1)
-        self.image=True
-        self.parseDICOM()
-        self.numberOfFrames = int(self.dicom.NumberOfFrames)
-        self.infoTable.setItem(0, 1, QTableWidgetItem(self.patientName))
-        self.infoTable.setItem(1, 1, QTableWidgetItem(self.patientBirthDate))
-        self.infoTable.setItem(2, 1, QTableWidgetItem(self.patientSex))
-        self.infoTable.setItem(3, 1, QTableWidgetItem(str(self.ivusPullbackRate)))
-        self.infoTable.setItem(4, 1, QTableWidgetItem(str(self.resolution)))
-        self.infoTable.setItem(5, 1, QTableWidgetItem(str(self.rows)))
-        self.infoTable.setItem(6, 1, QTableWidgetItem(self.manufacturer))        
-        self.infoTable.setItem(7, 1, QTableWidgetItem((self.model)))
+        if fileName:
+            self.dicom = dcm.read_file(fileName)
+            self.images = self.dicom.pixel_array
+            self.slider.setMaximum(self.dicom.NumberOfFrames-1)
+            self.image=True
+            self.parseDICOM()
+            self.numberOfFrames = int(self.dicom.NumberOfFrames)
+            self.infoTable.setItem(0, 1, QTableWidgetItem(self.patientName))
+            self.infoTable.setItem(1, 1, QTableWidgetItem(self.patientBirthDate))
+            self.infoTable.setItem(2, 1, QTableWidgetItem(self.patientSex))
+            self.infoTable.setItem(3, 1, QTableWidgetItem(str(self.ivusPullbackRate)))
+            self.infoTable.setItem(4, 1, QTableWidgetItem(str(self.resolution)))
+            self.infoTable.setItem(5, 1, QTableWidgetItem(str(self.rows)))
+            self.infoTable.setItem(6, 1, QTableWidgetItem(self.manufacturer))        
+            self.infoTable.setItem(7, 1, QTableWidgetItem((self.model)))
 
-        if not self.lumen:
-            self.lumen = ([[] for idx in range(self.numberOfFrames)], [[] for idx in range(self.numberOfFrames)])
-            self.plaque = ([[] for idx in range(self.numberOfFrames)], [[] for idx in range(self.numberOfFrames)])
-        self.wid.setData(self.lumen, self.plaque, self.images)
-        self.slider.setValue(self.numberOfFrames-1)
+            if not self.lumen:
+                self.lumen = ([[] for idx in range(self.numberOfFrames)], [[] for idx in range(self.numberOfFrames)])
+                self.plaque = ([[] for idx in range(self.numberOfFrames)], [[] for idx in range(self.numberOfFrames)])
+            self.wid.setData(self.lumen, self.plaque, self.images)
+            self.slider.setValue(self.numberOfFrames-1)
 
     def readContours(self):
         """Reads contours saved in xml format (Echoplaque compatible)"""
