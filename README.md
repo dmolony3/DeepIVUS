@@ -63,5 +63,5 @@ A report in the form of a text file can be generated for each frame in the pullb
 **Frame, Lumen area, Plaque area, Vessel area, Plaque burden, Phenotype**
 
 ## DeepIVUS Project Roadmap
-Ability to manually edit contours
-Deep ensembles for model uncertainty
+* Ability to manually edit contours  
+* Deep ensembles for model uncertainty
