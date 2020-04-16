@@ -61,3 +61,7 @@ IVUS pullbacks can be segmented by pressing the *Segment* button. It is highly r
 ## Report Generation
 A report in the form of a text file can be generated for each frame in the pullback by pressing *Write Report*. If *Gated Frames* is checked then the report will only include the end-diastolic images. The report consists of the following variables  
 **Frame, Lumen area, Plaque area, Vessel area, Plaque burden, Phenotype**
+
+## DeepIVUS Project Roadmap
+Ability to manually edit contours
+Deep ensembles for model uncertainty

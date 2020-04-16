@@ -1,15 +1,21 @@
 import tensorflow as tf
 import numpy as np
-from PyQt5.QtWidgets import QProgressDialog
+import os
+from PyQt5.QtWidgets import QProgressDialog, QMessageBox 
 from PyQt5.QtCore import Qt
 
 IMG_MEAN = tf.constant([60.3486, 60.3486, 60.3486], dtype=tf.float32)
 IMG_MEAN = tf.constant([60.3486], dtype=tf.float32)
 num_classes = 4
 num_phenotypes = 5
-model_path = 'model_weights/' # change this to relative filepath
-model = tf.saved_model.load(model_path)
+model_path = 'model/' # change this to relative filepath
 
+try:
+    model = tf.saved_model.load(model_path)
+except:
+    warning = ("Warning:  No saved weights have been found, segmentation will be unsuccessful, check that weights are saved in {}".format(os.path.join(os.getcwd(), 'model')))
+    print(warning)
+   
 def cast_and_center(image):
     image = tf.cast(image, dtype=tf.float32)
     image = image - IMG_MEAN
@@ -62,3 +68,4 @@ def predict(images):
     #progress.close()
     pred = np.concatenate(pred)
     return pred
+

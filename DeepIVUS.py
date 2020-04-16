@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QSlider, QApplication, 
-    QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, QLabel, QSizePolicy, QErrorMessage, QMessageBox, QFileDialog, QTableWidget, QTableWidgetItem)
+    QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, QLabel, QSizePolicy, QInputDialog, QErrorMessage, QMessageBox, QLineEdit, QFileDialog, QTableWidget, QTableWidgetItem)
 from PyQt5.QtCore import QObject, Qt, pyqtSignal, QPoint, QSize, QTimer
 from PyQt5.QtGui import QPainter, QFont, QColor, QPen, QPolygon, QImage, QPixmap, QIcon
 import sys
@@ -84,7 +84,15 @@ class Display(QWidget):
         self.imsize = self.images.shape
         self.poly1, _, _ = self.polygon(self.lumen[0], self.lumen[1])
         self.poly2, _, _ = self.polygon(self.plaque[0], self.plaque[1])
-        self.image=QImage(self.images[self.frame, : ,:], self.imsize[1], self.imsize[2], QImage.Format_Grayscale8)
+        self.displayImage()
+
+    def displayImage(self):
+        if len(self.images.shape) == 3:
+            self.image=QImage(self.images[self.frame, : ,:], self.imsize[1], self.imsize[2], QImage.Format_Grayscale8)
+        else:
+            bytesPerLine = 3*self.imsize[2]
+            current_image = self.images[self.frame, : ,:, :].astype(np.uint8, order='C', casting='unsafe')
+            self.image=QImage(current_image.data, self.imsize[1], self.imsize[2], bytesPerLine, QImage.Format_RGB888)       
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -108,7 +116,7 @@ class Display(QWidget):
     def run(self):
         self.poly1, x, y = self.polygon(self.lumen[0], self.lumen[1])
         self.poly2, _, _ = self.polygon(self.plaque[0], self.plaque[1])
-        self.image=QImage(self.images[self.frame, : ,:], self.imsize[1], self.imsize[2], QImage.Format_Grayscale8) 
+        self.displayImage()
 
     def setFrame(self, value):
         self.frame = value
@@ -164,14 +172,6 @@ class Master(QMainWindow):
         gatingButton.clicked.connect(self.gate)
         writeButton.clicked.connect(self.writeContours)
         reportButton.clicked.connect(self.report)
-        """
-        self.lumen, self.plaque, self.stent, self.resolution, frames = read_xml.read('/home/microway/Documents/IVUS/Data/RES022/RES022_data.xml')
-        self.lumen = self.mapToList(self.lumen)
-        self.plaque = self.mapToList(self.plaque)
-        self.stent = self.mapToList(self.stent)
-        dicom = dcm.read_file('/home/ubuntu/Documents/Qt/1-63/2.16.840.1.114380.1.1.347327.186.1.1.20100506085134890.3.dcm')
-        self.images = dicom.pixel_array
-        """
 
         self.slider = Slider(Qt.Horizontal)     
         self.slider.valueChanged[int].connect(self.changeValue)
@@ -228,31 +228,53 @@ class Master(QMainWindow):
             self.hideBox.setChecked(self.hideBox.isChecked())
 
     def parseDICOM(self):
-        if len(self.dicom.PatientName.encode('ascii')) > 0:
-            self.patientName = self.dicom.PatientName
+        if (len(self.dicom.PatientName.encode('ascii')) > 0):
+            self.patientName = self.dicom.PatientName.original_string.decode('utf-8')
         else:
             self.patientName = 'Unknown'
+
         if len(self.dicom.PatientBirthDate) > 0:
             self.patientBirthDate = self.dicom.PatientBirthDate
         else:
             self.patientBirthDate = 'Unknown'
+
         if len(self.dicom.PatientSex) > 0:
             self.patientSex = self.dicom.PatientSex
         else:
             self.patientSex = 'Unknown'
-        self.ivusPullbackRate = self.dicom.IVUSPullbackRate
-        if self.dicom.SequenceOfUltrasoundRegions[0].PhysicalUnitsXDirection == 3:
-            # pixels are in cm, convert to mm 
-            self.resolution = self.dicom.SequenceOfUltrasoundRegions[0].PhysicalDeltaX*10
+
+        if self.dicom.get('IVUSPullbackRate'):
+            self.ivusPullbackRate = self.dicom.IVUSPullbackRate
+        # check Boston private tag
+        elif self.dicom.get(0x000b1001):
+            self.ivusPullbackRate = self.dicom[0x000b1001].value
         else:
-            # assume mm
-            self.resolution = self.dicom.SequenceOfUltrasoundRegions[0].PhysicalDeltaX
-        self.rows = self.dicom.Rows
-        if len(self.dicom.Manufacturer) > 0:
+            self.ivusPullbackRate = ''
+
+        if self.dicom.get('SequenceOfUltrasoundRegions'):
+            if self.dicom.SequenceOfUltrasoundRegions[0].PhysicalUnitsXDirection == 3:
+                # pixels are in cm, convert to mm 
+                self.resolution = self.dicom.SequenceOfUltrasoundRegions[0].PhysicalDeltaX*10
+            else:
+                # assume mm
+                self.resolution = self.dicom.SequenceOfUltrasoundRegions[0].PhysicalDeltaX
+        elif self.dicom.get('PixelSpacing'):
+            self.resolution = float(self.dicom.PixelSpacing[0])
+        else:
+            resolution, done = QInputDialog.getText(self, "Pixel Spacing", "No pixel spacing info found, please enter pixel spacing (mm)", QLineEdit.Normal, "")
+            self.resolution = float(resolution)
+        
+        if self.dicom.get('Rows'):
+            self.rows = self.dicom.Rows
+        else:
+            self.rows = self.dicom.shape[1]
+
+        if self.dicom.get('Manufacturer'):
             self.manufacturer = self.dicom.Manufacturer
         else:
             self.manufacturer = 'Unknown'
-        if len(self.dicom.ManufacturerModelName) > 0:
+
+        if self.dicom.get('ManufacturerModelName'):
             self.model = self.dicom.ManufacturerModelName
         else:
             self.model = 'Unknown'
@@ -266,7 +288,7 @@ class Master(QMainWindow):
             self.dicom = dcm.read_file(fileName)
             self.images = self.dicom.pixel_array
             self.slider.setMaximum(self.dicom.NumberOfFrames-1)
-            self.image=True
+            self.image = True
             self.parseDICOM()
             self.numberOfFrames = int(self.dicom.NumberOfFrames)
             self.infoTable.setItem(0, 1, QTableWidgetItem(self.patientName))
@@ -277,10 +299,16 @@ class Master(QMainWindow):
             self.infoTable.setItem(5, 1, QTableWidgetItem(str(self.rows)))
             self.infoTable.setItem(6, 1, QTableWidgetItem(self.manufacturer))        
             self.infoTable.setItem(7, 1, QTableWidgetItem((self.model)))
+            
+            if len(self.lumen) != 0:
+                reinitializeContours = len(self.lumen) != self.numberOfFrames
+            else:
+                reinitializeContours = False
 
-            if not self.lumen:
+            if not self.lumen or reinitializeContours:
                 self.lumen = ([[] for idx in range(self.numberOfFrames)], [[] for idx in range(self.numberOfFrames)])
                 self.plaque = ([[] for idx in range(self.numberOfFrames)], [[] for idx in range(self.numberOfFrames)])
+
             self.wid.setData(self.lumen, self.plaque, self.images)
             self.slider.setValue(self.numberOfFrames-1)
 
@@ -360,6 +388,18 @@ class Master(QMainWindow):
 
     def segment(self):
         """Segmentation and phenotyping of IVUS images"""
+        save_path = os.path.join(os.getcwd(), 'model', 'saved_model.pb')
+        if not os.path.isfile(save_path):
+            message= "No saved weights have been found, segmentation will be unsuccessful, check that weights are saved in {}".format(os.path.join(os.getcwd(), 'model'))
+            error = QMessageBox()
+            error.setIcon(QMessageBox.Critical)
+            error.setWindowTitle("Error")
+            error.setModal(True)
+            error.setWindowModality(Qt.WindowModal)
+            error.setText(message)
+            error.exec_()
+            return -1
+
         warning = QErrorMessage()
         warning.setWindowModality(Qt.WindowModal)
         warning.showMessage('Warning: IVUS Phenotyping is currently only supported for 20MHz images. Interpret other images with extreme caution')
