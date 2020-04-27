@@ -3,6 +3,7 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QSlider, QApplication,
 from PyQt5.QtCore import QObject, Qt, pyqtSignal, QPoint, QSize, QTimer
 from PyQt5.QtGui import QPainter, QFont, QColor, QPen, QPolygon, QImage, QPixmap, QIcon
 import sys
+import time
 import read_xml, pydicom as dcm
 from IVUS_gating import *
 from IVUS_prediction import predict
@@ -51,6 +52,10 @@ class Slider(QSlider):
                 self.setValue(self.gatedFrames[currentGatedFrame])                
             else:
                 self.setValue(self.value() - 1)
+        elif key == Qt.Key_J:
+            self.setValue(self.value() + 1)
+            time.sleep(0.1)
+            self.setValue(self.value() - 1)
 
     def findFrame(self, currentFrame):
         frameDiff = [abs(val - currentFrame) for val in self.gatedFrames]
@@ -226,6 +231,11 @@ class Master(QMainWindow):
             elif self.hideBox.isChecked() == True:
                 self.hideBox.setChecked(False)
             self.hideBox.setChecked(self.hideBox.isChecked())
+        elif key == Qt.Key_J:
+            currentFrame = self.slider.value()
+            self.slider.setValue(currentFrame+1)
+            time.sleep(0.1)
+            self.slider.setValue(currentFrame)
 
     def parseDICOM(self):
         if (len(self.dicom.PatientName.encode('ascii')) > 0):
