@@ -63,10 +63,10 @@ A report in the form of a text file can be generated for each frame in the pullb
 **Frame, Lumen area, Plaque area, Vessel area, Plaque burden, Phenotype**
 
 ## Keyboard Shortcuts
-:arrow_up: Next (gated) proximal image  
-:arrow_down: Next (gated) distal image  
 :arrow_right: Next proximal image  
 :arrow_left: Next distal image  
+:arrow_up: Next (gated) proximal image  
+:arrow_down: Next (gated) distal image  
 <kbd>h</kbd> Hide contours  
 <kbd>j</kbd> Jiggle current frame  
 <kbd>q</kbd> Quit session  

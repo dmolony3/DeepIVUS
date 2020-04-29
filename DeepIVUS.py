@@ -53,9 +53,13 @@ class Slider(QSlider):
             else:
                 self.setValue(self.value() - 1)
         elif key == Qt.Key_J:
+            self.setValue(self.value() - 1)
+            time.sleep(0.1)
+            self.setValue(self.value())
+            time.sleep(0.1)
             self.setValue(self.value() + 1)
             time.sleep(0.1)
-            self.setValue(self.value() - 1)
+            self.setValue(self.value())
 
     def findFrame(self, currentFrame):
         frameDiff = [abs(val - currentFrame) for val in self.gatedFrames]
