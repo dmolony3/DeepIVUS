@@ -1,13 +1,12 @@
-from PyQt5.QtWidgets import (QMainWindow, QWidget, QSlider, QApplication, 
+from PyQt5.QtWidgets import (QMainWindow, QWidget, QSlider, QApplication, QHeaderView,
     QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, QLabel, QSizePolicy, QInputDialog, QErrorMessage, QMessageBox, QLineEdit, QFileDialog, QTableWidget, QTableWidgetItem)
-from PyQt5.QtCore import QObject, Qt, pyqtSignal, QPoint, QSize, QTimer
-from PyQt5.QtGui import QPainter, QFont, QColor, QPen, QPolygon, QImage, QPixmap, QIcon
-import sys
-import time
-import read_xml, pydicom as dcm
-from IVUS_gating import *
+from PyQt5.QtCore import QObject, Qt, pyqtSignal, QSize
+from PyQt5.QtGui import QPainter, QFont, QColor, QPen, QIcon
+import sys,read_xml, pydicom as dcm, numpy as np
+from IVUS_gating import IVUS_gating
 from IVUS_prediction import predict
-from write_xml import *
+from write_xml import write_xml, get_contours
+from Display import Display
 
 class Communicate(QObject):
     updateBW = pyqtSignal(int)
@@ -55,11 +54,11 @@ class Slider(QSlider):
         elif key == Qt.Key_J:
             self.setValue(self.value() - 1)
             time.sleep(0.1)
-            self.setValue(self.value())
+            self.setValue(self.value() + 1)
             time.sleep(0.1)
             self.setValue(self.value() + 1)
             time.sleep(0.1)
-            self.setValue(self.value())
+            self.setValue(self.value() - 1)
 
     def findFrame(self, currentFrame):
         frameDiff = [abs(val - currentFrame) for val in self.gatedFrames]
@@ -70,68 +69,6 @@ class Slider(QSlider):
         """Stores the gated frames so that these can be cycled through"""
         self.gatedFrames = gatedFrames
         self.maxFrame = len(self.gatedFrames) - 1
-
-class Display(QWidget):
-    def __init__(self):
-        super().__init__()
-        self.frame=0
-        self.image=QImage(QPixmap(500, 500).toImage())
-        self.lumen = ([], [])
-        self.plaque = ([], [])
-        self.hide = True
-        sizePolicy = QSizePolicy()
-        sizePolicy.setHorizontalPolicy(QSizePolicy.Fixed)
-        sizePolicy.setVerticalPolicy(QSizePolicy.Fixed)
-        self.setSizePolicy(sizePolicy)
-        self.setMinimumSize(QSize(500, 500))
-        self.setMaximumSize(QSize(500, 500))
-
-    def setData(self, lumen, plaque, images):
-        self.lumen = lumen
-        self.plaque = plaque
-        self.images = images
-        self.imsize = self.images.shape
-        self.poly1, _, _ = self.polygon(self.lumen[0], self.lumen[1])
-        self.poly2, _, _ = self.polygon(self.plaque[0], self.plaque[1])
-        self.displayImage()
-
-    def displayImage(self):
-        if len(self.images.shape) == 3:
-            self.image=QImage(self.images[self.frame, : ,:], self.imsize[1], self.imsize[2], QImage.Format_Grayscale8)
-        else:
-            bytesPerLine = 3*self.imsize[2]
-            current_image = self.images[self.frame, : ,:, :].astype(np.uint8, order='C', casting='unsafe')
-            self.image=QImage(current_image.data, self.imsize[1], self.imsize[2], bytesPerLine, QImage.Format_RGB888)       
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        pixmap = QPixmap(self.image)
-        painter.drawPixmap(self.rect(), pixmap)
-        pen1 = QPen(Qt.red, 1)
-        painter.setPen(pen1)
-        if self.hide == False:
-            painter.drawPolyline(self.poly1)
-        pen2 = QPen(Qt.yellow, 1)
-        painter.setPen(pen2)
-        if self.hide == False:
-            painter.drawPolyline(self.poly2)
-
-    def polygon(self, x, y):
-        x = x[self.frame]
-        y = y[self.frame]
-        poly = QPolygon([QPoint(x[i], y[i]) for i in range(len(x))])
-        return poly, x, y
-
-    def run(self):
-        self.poly1, x, y = self.polygon(self.lumen[0], self.lumen[1])
-        self.poly2, _, _ = self.polygon(self.plaque[0], self.plaque[1])
-        self.displayImage()
-
-    def setFrame(self, value):
-        self.frame = value
-
-    def setDisplay(self, hide):
-        self.hide = hide
 
 class Master(QMainWindow):
     def __init__(self):
@@ -163,6 +100,10 @@ class Master(QMainWindow):
         writeButton = QPushButton('Write Contours')
         reportButton = QPushButton('Write Report')
 
+        hideHeader1 = QHeaderView(Qt.Vertical)
+        hideHeader1.hide()
+        hideHeader2 = QHeaderView(Qt.Horizontal)
+        hideHeader2.hide()
         self.infoTable = QTableWidget()
         self.infoTable.setRowCount(8)
         self.infoTable.setColumnCount(2)
@@ -174,6 +115,9 @@ class Master(QMainWindow):
         self.infoTable.setItem(5, 0, QTableWidgetItem('Dimensions'))
         self.infoTable.setItem(6, 0, QTableWidgetItem('Manufacturer'))
         self.infoTable.setItem(7, 0, QTableWidgetItem('Model'))
+        self.infoTable.setVerticalHeader(hideHeader1)
+        self.infoTable.setHorizontalHeader(hideHeader2)
+        self.infoTable.horizontalHeader().setStretchLastSection(True)
 
         dicomButton.clicked.connect(self.readDICOM)
         contoursButton.clicked.connect(self.readContours)
@@ -190,10 +134,10 @@ class Master(QMainWindow):
         self.hideBox.stateChanged[int].connect(self.changeState)
         self.useGatedBox = QCheckBox('Gated Frames')
         self.useGatedBox.stateChanged[int].connect(self.useGated)
-
+        self.useGatedBox.setToolTip("When this is checked only gated frames will be segmented and only gated frames statistics will be written to the report")
+        self.useGatedBox.setToolTipDuration(200)
+   
         self.wid = Display()
-        #self.wid.setData(self.lumen, self.plaque, self.images)
-
         self.c = Communicate()        
         self.c.updateBW[int].connect(self.wid.setFrame)
         self.c.updateBool[bool].connect(self.wid.setDisplay)
@@ -339,39 +283,42 @@ class Master(QMainWindow):
             fileName, _ = QFileDialog.getOpenFileName(self, "QFileDialog.getOpenFileName()", "", "XML file (*.xml)", options=options)
             if fileName:
                 self.lumen, self.plaque, self.stent, self.resolution, frames = read_xml.read(fileName)
+                self.resolution = float(self.resolution[0])
                 self.lumen = self.mapToList(self.lumen)
                 self.plaque = self.mapToList(self.plaque)
                 self.stent = self.mapToList(self.stent)
                 self.contours=True
-                self.resizeContours()
+                #self.resizeContours()
                 self.wid.setData(self.lumen, self.plaque, self.images)
                 self.hideBox.setChecked(False)
 
     def writeContours(self):
         """Writes contours to an xml file compatible with Echoplaque"""
         patientName = self.infoTable.item(0, 1).text()
+        self.lumen, self.plaque = self.wid.getData()
         # reformat data for compatibility with write_xml function
         x, y = [], []
-        for i in range(len(self.lumenCopy[0])):
-            x.append(self.lumenCopy[0][i])
-            x.append(self.plaqueCopy[0][i])
-            y.append(self.lumenCopy[1][i])
-            y.append(self.plaqueCopy[1][i])
-        if self.segmentation == 0:
+        for i in range(len(self.lumen[0])):
+            x.append(self.lumen[0][i])
+            x.append(self.plaque[0][i])
+            y.append(self.lumen[1][i])
+            y.append(self.plaque[1][i])
+        if self.segmentation == 0 and self.contours == False:
             self.errorMessage()
         else:
             frames = list(range(self.numberOfFrames))
             write_xml(x, y, self.images.shape, self.resolution, self.ivusPullbackRate, frames, patientName)
-        self.successMessage('Writing contours')
+            self.successMessage('Writing contours')
 
     def report(self):
         """Writes a report file containing lumen area, plaque, area, vessel area, plaque burden, phenotype"""
-        if self.segmentation == 0:
+        if self.segmentation == 0 and self.contours == False:
             self.errorMessage()
         else:
+            self.lumen, self.plaque = self.wid.getData() # SET SCALING IN DISPLAY
+            lumen_area, plaque_area, plaque_burden = self.computeContourMetrics(self.lumen, self.plaque)
             phenotype = [0]*self.numberOfFrames
             patientName = self.infoTable.item(0, 1).text()
-            lumen_area, plaque_area, plaque_burden = self.metrics
             vessel_area = lumen_area + plaque_area
             if self.useGatedBox.isChecked() == True:
                 frames = self.gatedFrames
@@ -380,10 +327,11 @@ class Master(QMainWindow):
 
             f = open(patientName + '_report.txt', 'w')
             f.write('Frame\tLumen area\tPlaque area\tVessel area\tPlaque burden\tphenotype\n')
+
             for i, frame in enumerate(frames):
                 f.write('{}\t{:.2f}\t{:.2f}\t{:.2f}\t{:.2f}\t{}\n'.format(frame, lumen_area[frame], plaque_area[frame], vessel_area[frame], plaque_burden[frame], phenotype[frame]))
             f.close()
-        self.successMessage('Write report')
+            self.successMessage('Write report')
 
     def computeMetrics(self, masks):
         """Measures lumen area, plaque area and plaque burden"""
@@ -431,12 +379,12 @@ class Master(QMainWindow):
 
         # convert masks to contours
         self.lumen, self.plaque = self.maskToContours(masks)
-
+        self.contours = True
         # stent contours currently unsupported so create empty list
         self.stent = [[[] for i in range(image_dim[0])], [[] for i in range(image_dim[0])]]
         self.wid.setData(self.lumen, self.plaque, self.images)
         self.hideBox.setChecked(False)
-        self.resizeContours()
+        #self.resizeContours()
         self.successMessage('Segmentation')
 
     def maskToContours(self, masks):
@@ -447,6 +395,24 @@ class Master(QMainWindow):
         _, _, lumen_pred, plaque_pred = get_contours(masks, levels, image_shape) 
 
         return lumen_pred, plaque_pred
+
+    def contourArea(self, x, y):
+        """Calculate contour/polygon area using Shoelace formula"""
+        area = 0.5*np.abs(np.dot(x,np.roll(y,1))-np.dot(y,np.roll(x,1)))
+        return area
+
+    def computeContourMetrics(self, lumen, plaque):
+        """Computes lumen area, plaque area and plaque burden from contours"""
+        numberOfFrames = len(lumen[0])
+        lumen_area = np.zeros((numberOfFrames))
+        plaque_area = np.zeros_like(lumen_area)
+        plaque_burden = np.zeros_like(lumen_area)
+        for i in range(numberOfFrames):
+            if lumen[0][i]:
+                lumen_area[i] = self.contourArea(lumen[0][i], lumen[1][i])*self.resolution**2
+                plaque_area[i] = self.contourArea(plaque[0][i], plaque[1][i])*self.resolution**2 - lumen_area[i]
+                plaque_burden[i] = (plaque_area[i]/(lumen_area[i] + plaque_area[i]))*100
+        return (lumen_area, plaque_area, plaque_burden)
 
     def resizeContours(self):
         """If image is not 500x500 resize the contours for appropriate display"""
@@ -477,13 +443,11 @@ class Master(QMainWindow):
     def changeValue(self, value):
         self.c.updateBW.emit(value)
         self.wid.run()
-        self.wid.repaint()
         self.text.setText("Frame {}".format(value))        
 
     def changeState(self, value):
         self.c.updateBool.emit(value)
         self.wid.run()
-        self.wid.repaint()
 
     def useGated(self, value):
         self.gated = value
