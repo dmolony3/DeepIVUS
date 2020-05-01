@@ -58,6 +58,11 @@ IVUS pullbacks can be segmented by pressing the *Segment* button. It is highly r
 
 ![Alt Text](/Media/Segmentation.gif)
 
+## Manual contour editing
+Contours can be manually edited by dragging anchor points. 
+
+![Alt Text](/Media/Editing.gif)
+
 ## Report Generation
 A report in the form of a text file can be generated for each frame in the pullback by pressing *Write Report*. If *Gated Frames* is checked then the report will only include the end-diastolic images. The report consists of the following variables:  
 **Frame, Lumen area, Plaque area, Vessel area, Plaque burden, Phenotype**
@@ -72,5 +77,4 @@ A report in the form of a text file can be generated for each frame in the pullb
 <kbd>q</kbd> Quit session  
 
 ## DeepIVUS Project Roadmap
-* Ability to manually edit contours  
 * Deep ensembles for model uncertainty
