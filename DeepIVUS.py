@@ -82,7 +82,7 @@ class Master(QMainWindow):
         self.setGeometry(300, 100, 1000, 750)
         self.lumen = ()
         self.plaque = ()
-
+        self.addToolBar("MY Window")
         layout = QHBoxLayout()
         vbox1 = QVBoxLayout()
         vbox2 = QVBoxLayout()
@@ -244,7 +244,18 @@ class Master(QMainWindow):
 
         if fileName:
             self.dicom = dcm.read_file(fileName)
-            self.images = self.dicom.pixel_array
+            try:
+                self.images = self.dicom.pixel_array
+            except:
+                error = QMessageBox()
+                error.setIcon(QMessageBox.Critical)
+                error.setWindowTitle("Error")
+                error.setModal(True)
+                error.setWindowModality(Qt.WindowModal)
+                error.setText("File is not a valid IVUS file and could not be loaded")
+                error.exec_()
+                return None
+                
             self.slider.setMaximum(self.dicom.NumberOfFrames-1)
             self.image = True
             self.parseDICOM()
