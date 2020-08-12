@@ -2,17 +2,20 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QSlider, QApplication, QHeade
     QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, QLabel, QSizePolicy, QInputDialog, QErrorMessage, QMessageBox, QLineEdit, QFileDialog, QTableWidget, QTableWidgetItem)
 from PyQt5.QtCore import QObject, Qt, pyqtSignal, QSize
 from PyQt5.QtGui import QPainter, QFont, QColor, QPen, QIcon
-import sys,read_xml, pydicom as dcm, numpy as np
 from IVUS_gating import IVUS_gating
 from IVUS_prediction import predict
 from write_xml import write_xml, get_contours
-from Display import Display
+from display import Display
+import os, sys, time, read_xml
+import pydicom as dcm
+import numpy as np
 
 class Communicate(QObject):
     updateBW = pyqtSignal(int)
     updateBool = pyqtSignal(bool)
 
 class Slider(QSlider):
+    """Slider for changing the currently displayed image."""
     def __init__(self, orientation):
         super().__init__()
         self.setOrientation(orientation)
@@ -28,6 +31,8 @@ class Slider(QSlider):
         self.gatedFrames = []
 
     def keyPressEvent(self, event):
+        """Key events."""
+
         key = event.key()
         if key == Qt.Key_Right:
             self.setValue(self.value() + 1)
@@ -61,28 +66,50 @@ class Slider(QSlider):
             self.setValue(self.value() - 1)
 
     def findFrame(self, currentFrame):
+        """Find the closest gated frame.
+
+        Args:
+            currentFrame: int, current displayed frame
+        Returns:
+            currentGatedFrame: int, gated frame closeset to current displayed frame
+        """
+
         frameDiff = [abs(val - currentFrame) for val in self.gatedFrames]
-        currentGatedFrame = [idx for idx in range(len(frameDiff)) if frameDiff[idx] == min(frameDiff)][0]
+        currentGatedFrame = [idx for idx in range(len(frameDiff)) 
+            if frameDiff[idx] == min(frameDiff)][0]
+
         return currentGatedFrame
 
     def addGatedFrames(self, gatedFrames):
-        """Stores the gated frames so that these can be cycled through"""
+        """Stores the gated frames."""
+
         self.gatedFrames = gatedFrames
         self.maxFrame = len(self.gatedFrames) - 1
 
 class Master(QMainWindow):
+    """Main Window Class
+
+    Attributes:
+        image: bool, indicates whether images have been loaded (true) or not
+        contours: bool, indicates whether contours have been loaded (true) or not
+        segmentation: bool, indicates whether segmentation has been performed (true) or not
+        lumen: tuple, contours for lumen border
+        plaque: tuple, contours for plaque border
+    """
+
     def __init__(self):
         super().__init__()
-        self.image=False
-        self.contours=False
-        self.segmentation = 0
+        self.image = False
+        self.contours = False
+        self.segmentation = False
+        self.lumen = ()
+        self.plaque = ()
         self.initUI()
 
     def initUI(self):
         self.setGeometry(300, 100, 1000, 750)
-        self.lumen = ()
-        self.plaque = ()
         self.addToolBar("MY Window")
+
         layout = QHBoxLayout()
         vbox1 = QVBoxLayout()
         vbox2 = QVBoxLayout()
@@ -174,9 +201,9 @@ class Master(QMainWindow):
         if key == Qt.Key_Q:
             self.close()
         elif key == Qt.Key_H:
-            if self.hideBox.isChecked() == False:
+            if not self.hideBox.isChecked():
                 self.hideBox.setChecked(True)
-            elif self.hideBox.isChecked() == True:
+            elif self.hideBox.isChecked():
                 self.hideBox.setChecked(False)
             self.hideBox.setChecked(self.hideBox.isChecked())
         elif key == Qt.Key_J:
@@ -186,6 +213,8 @@ class Master(QMainWindow):
             self.slider.setValue(currentFrame)
 
     def parseDICOM(self):
+        """Parses DICOM metadata"""
+
         if (len(self.dicom.PatientName.encode('ascii')) > 0):
             self.patientName = self.dicom.PatientName.original_string.decode('utf-8')
         else:
@@ -238,6 +267,12 @@ class Master(QMainWindow):
             self.model = 'Unknown'
 
     def readDICOM(self):
+        """Reads DICOM images.
+
+        Reads the dicom images and metadata. Places metatdata in a table.
+        Images are displayed in the graphics scene.
+        """
+
         options=QFileDialog.Options()
         options = QFileDialog.DontUseNativeDialog
         fileName, _ = QFileDialog.getOpenFileName(self, "QFileDialog.getOpenFileName()", "", "DICOM files (*.dcm);;All files (*)", options=options)
@@ -282,8 +317,13 @@ class Master(QMainWindow):
             self.slider.setValue(self.numberOfFrames-1)
 
     def readContours(self):
-        """Reads contours saved in xml format (Echoplaque compatible)"""
-        if self.image==False:
+        """Reads contours.
+
+        Reads contours  saved in xml format (Echoplaque compatible) and 
+        displays the contours in the graphics scene
+        """
+
+        if not self.image:
             warning = QErrorMessage()
             warning.setWindowModality(Qt.WindowModal)
             warning.showMessage('Reading of contours failed. Images must be loaded prior to loading contours')
@@ -305,8 +345,10 @@ class Master(QMainWindow):
 
     def writeContours(self):
         """Writes contours to an xml file compatible with Echoplaque"""
+
         patientName = self.infoTable.item(0, 1).text()
         self.lumen, self.plaque = self.wid.getData()
+
         # reformat data for compatibility with write_xml function
         x, y = [], []
         for i in range(len(self.lumen[0])):
@@ -314,16 +356,20 @@ class Master(QMainWindow):
             x.append(self.plaque[0][i])
             y.append(self.lumen[1][i])
             y.append(self.plaque[1][i])
-        if self.segmentation == 0 and self.contours == False:
+
+        if not self.segmentation and not self.contours:
             self.errorMessage()
         else:
             frames = list(range(self.numberOfFrames))
+
             write_xml(x, y, self.images.shape, self.resolution, self.ivusPullbackRate, frames, patientName)
+
             self.successMessage('Writing contours')
 
     def report(self):
         """Writes a report file containing lumen area, plaque, area, vessel area, plaque burden, phenotype"""
-        if self.segmentation == 0 and self.contours == False:
+
+        if self.segmentation and not self.contours:
             self.errorMessage()
         else:
             self.lumen, self.plaque = self.wid.getData() # SET SCALING IN DISPLAY
@@ -331,7 +377,8 @@ class Master(QMainWindow):
             phenotype = [0]*self.numberOfFrames
             patientName = self.infoTable.item(0, 1).text()
             vessel_area = lumen_area + plaque_area
-            if self.useGatedBox.isChecked() == True:
+
+            if self.useGatedBox.isChecked():
                 frames = self.gatedFrames
             else:
                 frames = list(range(self.numberOfFrames))
@@ -342,25 +389,36 @@ class Master(QMainWindow):
             for i, frame in enumerate(frames):
                 f.write('{}\t{:.2f}\t{:.2f}\t{:.2f}\t{:.2f}\t{}\n'.format(frame, lumen_area[frame], plaque_area[frame], vessel_area[frame], plaque_burden[frame], phenotype[frame]))
             f.close()
+
             self.successMessage('Write report')
 
     def computeMetrics(self, masks):
         """Measures lumen area, plaque area and plaque burden"""
+
         lumen, plaque = 1, 2  
         lumen_area = np.sum(masks == lumen, axis=(1, 2))*self.resolution**2
         plaque_area = np.sum(masks == plaque, axis=(1,2))*self.resolution**2
         plaque_burden = (plaque_area/(lumen_area + plaque_area))*100
+
         return (lumen_area, plaque_area, plaque_burden)
 
     def gate(self):
         """Extract end diastolic frames and stores in new variable"""
+
         self.gatedFrames = IVUS_gating(self.images, self.ivusPullbackRate, self.dicom.CineRate)
         if self.gatedFrames:
             self.slider.addGatedFrames(self.gatedFrames)
             self.useGatedBox.setChecked(True)
+            self.successMessage("Diastolic frame (change with up and down arrows) extraction")
+        else:
+            warning = QErrorMessage()
+            warning.setWindowModality(Qt.WindowModal)
+            warning.showMessage('Diastolic frame extraction was unsuccessful')
+            warning.exec_()            
 
     def segment(self):
         """Segmentation and phenotyping of IVUS images"""
+
         save_path = os.path.join(os.getcwd(), 'model', 'saved_model.pb')
         if not os.path.isfile(save_path):
             message= "No saved weights have been found, segmentation will be unsuccessful, check that weights are saved in {}".format(os.path.join(os.getcwd(), 'model'))
@@ -377,22 +435,27 @@ class Master(QMainWindow):
         warning.setWindowModality(Qt.WindowModal)
         warning.showMessage('Warning: IVUS Phenotyping is currently only supported for 20MHz images. Interpret other images with extreme caution')
         warning.exec_()
+
         image_dim = self.images.shape
-        if self.useGatedBox.isChecked() == True:
+
+        if self.useGatedBox.isChecked():
             masks = np.zeros((self.numberOfFrames, image_dim[1], image_dim[2]), dtype=np.uint8)
             masks_gated = predict(self.images[self.gatedFrames, : ,:])
             masks[self.gatedFrames, :, :] = masks_gated
         else:
             masks = predict(self.images)
+
         # compute metrics such as plaque burden
         self.metrics = self.computeMetrics(masks)
-        self.segmentation = 1
+        self.segmentation = True
 
         # convert masks to contours
         self.lumen, self.plaque = self.maskToContours(masks)
         self.contours = True
+
         # stent contours currently unsupported so create empty list
         self.stent = [[[] for i in range(image_dim[0])], [[] for i in range(image_dim[0])]]
+
         self.wid.setData(self.lumen, self.plaque, self.images)
         self.hideBox.setChecked(False)
         #self.resizeContours()
@@ -400,6 +463,7 @@ class Master(QMainWindow):
 
     def maskToContours(self, masks):
         """Convert numpy mask to IVUS contours """
+
         levels = [1.5, 2.5]
         image_shape = masks.shape[1:3]
         masks = mask_image(masks, catheter=0)
@@ -409,11 +473,14 @@ class Master(QMainWindow):
 
     def contourArea(self, x, y):
         """Calculate contour/polygon area using Shoelace formula"""
+
         area = 0.5*np.abs(np.dot(x,np.roll(y,1))-np.dot(y,np.roll(x,1)))
+
         return area
 
     def computeContourMetrics(self, lumen, plaque):
         """Computes lumen area, plaque area and plaque burden from contours"""
+
         numberOfFrames = len(lumen[0])
         lumen_area = np.zeros((numberOfFrames))
         plaque_area = np.zeros_like(lumen_area)
@@ -423,10 +490,12 @@ class Master(QMainWindow):
                 lumen_area[i] = self.contourArea(lumen[0][i], lumen[1][i])*self.resolution**2
                 plaque_area[i] = self.contourArea(plaque[0][i], plaque[1][i])*self.resolution**2 - lumen_area[i]
                 plaque_burden[i] = (plaque_area[i]/(lumen_area[i] + plaque_area[i]))*100
+
         return (lumen_area, plaque_area, plaque_burden)
 
     def resizeContours(self):
         """If image is not 500x500 resize the contours for appropriate display"""
+
         scale = 500/self.images.shape[1]
         print('Scaling images by {} for display'.format(scale))
         self.lumenCopy = (self.lumen[0][:], self.lumen[1][:])
@@ -446,9 +515,12 @@ class Master(QMainWindow):
         return (contours[0], contours[1])
 
     def mapToList(self, contours):
+        """Converts map to list"""
+
         x, y = contours
         x = [list(x[i]) for i in range(0, len(x))]
         y = [list(y[i]) for i in range(0, len(y))]
+
         return (x, y)
 
     def changeValue(self, value):
@@ -464,6 +536,8 @@ class Master(QMainWindow):
         self.gated = value
 
     def errorMessage(self):
+        """Helper function for errors"""
+
         warning = QMessageBox()
         warning.setWindowModality(Qt.WindowModal)
         warning.setWindowTitle('Error')
@@ -471,6 +545,8 @@ class Master(QMainWindow):
         warning.exec_()
 
     def successMessage(self, task):
+        """Helper function for success messages"""
+
         success = QMessageBox()
         success.setWindowModality(Qt.WindowModal)
         success.setWindowTitle('Status')

@@ -1,8 +1,8 @@
-import tensorflow as tf
-import numpy as np
-import os
 from PyQt5.QtWidgets import QProgressDialog, QMessageBox 
 from PyQt5.QtCore import Qt
+import numpy as np
+import os
+import tensorflow as tf
 
 IMG_MEAN = tf.constant([60.3486, 60.3486, 60.3486], dtype=tf.float32)
 IMG_MEAN = tf.constant([60.3486], dtype=tf.float32)

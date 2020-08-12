@@ -2,14 +2,29 @@ import xml.etree.ElementTree as ET
 
 def splitxy(points):
     """Splits comma separated points into separate x and y lists"""
+
     pointsX = []
     pointsY = []
     for i in range(0, len(points)):
         pointsX.append(map(lambda x:int(x.split(',')[0]), points[i]))
         pointsY.append(map(lambda x:int(x.split(',')[1]), points[i]))
+
     return pointsX, pointsY
 
 def read(path, frames=[]):
+    """Reads xml file from the specified path.
+
+    Args:
+        path: str, path to the .xml file (must be in echoplaque format)
+        frames: list, frames that should be included, if empty all are included
+    Returns:
+        (Lx, Ly): tuple, x and y lumen contours
+        (Vx, Vy): tuple, x and y plaque contours
+        (Sx, Sy): tuple, x and y stent contours
+        [xres, yres]: list, x and y pixel spacing
+        framelist: list, frames with contours
+    """
+
     tree = ET.parse(path)
     root = tree.getroot()
     print(root.tag)
@@ -23,6 +38,7 @@ def read(path, frames=[]):
     lumen={}
     vessel={}
     stent={}
+
     for child in root:
         # use text to see the values in the tags
         #print(child.tag, child.text)
@@ -32,15 +48,18 @@ def read(path, frames=[]):
             zdim = imageState.find('NumberOfFrames').text
             if not frames:
                 frames=range(int(zdim))
+
         for imageCalibration in child.iter('ImageCalibration'):
             xres = imageCalibration.find('XCalibration').text
             yres = imageCalibration.find('YCalibration').text
             pullbackSpeed = imageCalibration.find('PullbackSpeed').text
             #frameTime = imageCalibration.find('FrameTimeInMs').text
+
         for frameState in child.iter('FrameState'):
             xOffSet = frameState.find('Xoffset').text
             yOffSet = frameState.find('Yoffset').text
             fm = frameState.find('Fm').iter('Num')
+
             for frame in child.iter('Fm'):
                 frameNo = int(frame.find('Num').text)
                 print('Reading frame no {}'.format(frameNo))

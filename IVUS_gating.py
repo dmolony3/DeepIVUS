@@ -1,4 +1,3 @@
-import pydicom as dcm
 import numpy as np
 from PyQt5.QtWidgets import QProgressDialog
 from PyQt5.QtCore import Qt
