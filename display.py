@@ -3,6 +3,7 @@ from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap, QImage
 import math
+import numpy as np
 
 class Display(QGraphicsView):
     """Displays images and contours.

@@ -4,7 +4,7 @@ from PyQt5.QtCore import QObject, Qt, pyqtSignal, QSize
 from PyQt5.QtGui import QPainter, QFont, QColor, QPen, QIcon
 from IVUS_gating import IVUS_gating
 from IVUS_prediction import predict
-from write_xml import write_xml, get_contours
+from write_xml import write_xml, get_contours, mask_image
 from display import Display
 import os, sys, time, read_xml
 import pydicom as dcm
@@ -238,6 +238,14 @@ class Master(QMainWindow):
         else:
             self.ivusPullbackRate = ''
 
+        if self.dicom.get('FrameTimeVector'):
+            frameTimeVector = self.dicom.get('FrameTimeVector')
+            frameTimeVector = [float(frame) for frame in frameTimeVector]
+            pullbackTime = np.cumsum(frameTimeVector)/1000 # assume in ms
+            self.pullbackLength = pullbackTime*float(self.ivusPullbackRate)
+        else:
+            self.pullbackLength = np.zeros(self.images.shape[0], 1)
+
         if self.dicom.get('SequenceOfUltrasoundRegions'):
             if self.dicom.SequenceOfUltrasoundRegions[0].PhysicalUnitsXDirection == 3:
                 # pixels are in cm, convert to mm 
@@ -254,7 +262,7 @@ class Master(QMainWindow):
         if self.dicom.get('Rows'):
             self.rows = self.dicom.Rows
         else:
-            self.rows = self.dicom.shape[1]
+            self.rows = self.images.shape[1]
 
         if self.dicom.get('Manufacturer'):
             self.manufacturer = self.dicom.Manufacturer
@@ -278,8 +286,8 @@ class Master(QMainWindow):
         fileName, _ = QFileDialog.getOpenFileName(self, "QFileDialog.getOpenFileName()", "", "DICOM files (*.dcm);;All files (*)", options=options)
 
         if fileName:
-            self.dicom = dcm.read_file(fileName)
-            try:
+            try :
+                self.dicom = dcm.read_file(fileName)
                 self.images = self.dicom.pixel_array
             except:
                 error = QMessageBox()
@@ -334,14 +342,26 @@ class Master(QMainWindow):
             fileName, _ = QFileDialog.getOpenFileName(self, "QFileDialog.getOpenFileName()", "", "XML file (*.xml)", options=options)
             if fileName:
                 self.lumen, self.plaque, self.stent, self.resolution, frames = read_xml.read(fileName)
-                self.resolution = float(self.resolution[0])
-                self.lumen = self.mapToList(self.lumen)
-                self.plaque = self.mapToList(self.plaque)
-                self.stent = self.mapToList(self.stent)
-                self.contours=True
-                #self.resizeContours()
-                self.wid.setData(self.lumen, self.plaque, self.images)
-                self.hideBox.setChecked(False)
+
+                if len(self.lumen[0]) != self.dicom.NumberOfFrames:
+                    warning = QErrorMessage()
+                    warning.setWindowModality(Qt.WindowModal)
+                    warning.showMessage('Reading of contours failed. File must contain the same number of frames as loaded dicom')
+                    warning.exec_()
+                else:
+                    self.resolution = float(self.resolution[0])
+                    self.lumen = self.mapToList(self.lumen)
+                    self.plaque = self.mapToList(self.plaque)
+                    self.stent = self.mapToList(self.stent)
+                    self.contours=True
+                    #self.resizeContours()
+                    self.wid.setData(self.lumen, self.plaque, self.images)
+                    self.hideBox.setChecked(False)
+
+                    gatedFrames = [frame for frame in range(len(self.lumen[0])) if self.lumen[0][frame] or self.plaque[0][frame]]
+                    self.gatedFrames = gatedFrames
+                    self.useGatedBox.setChecked(True)
+                    self.slider.addGatedFrames(self.gatedFrames)
 
     def writeContours(self):
         """Writes contours to an xml file compatible with Echoplaque"""
@@ -372,7 +392,7 @@ class Master(QMainWindow):
         if self.segmentation and not self.contours:
             self.errorMessage()
         else:
-            self.lumen, self.plaque = self.wid.getData() # SET SCALING IN DISPLAY
+            self.lumen, self.plaque = self.wid.getData()
             lumen_area, plaque_area, plaque_burden = self.computeContourMetrics(self.lumen, self.plaque)
             phenotype = [0]*self.numberOfFrames
             patientName = self.infoTable.item(0, 1).text()
@@ -384,10 +404,10 @@ class Master(QMainWindow):
                 frames = list(range(self.numberOfFrames))
 
             f = open(patientName + '_report.txt', 'w')
-            f.write('Frame\tLumen area\tPlaque area\tVessel area\tPlaque burden\tphenotype\n')
+            f.write('Frame\tPosition\tLumen area\tPlaque area\tVessel area\tPlaque burden\tphenotype\n')
 
             for i, frame in enumerate(frames):
-                f.write('{}\t{:.2f}\t{:.2f}\t{:.2f}\t{:.2f}\t{}\n'.format(frame, lumen_area[frame], plaque_area[frame], vessel_area[frame], plaque_burden[frame], phenotype[frame]))
+                f.write('{}\t{:.2f}\t{:.2f}\t{:.2f}\t{:.2f}\t{:.2f}\t{}\n'.format(frame, self.pullbackLength[frame], lumen_area[frame], plaque_area[frame], vessel_area[frame], plaque_burden[frame], phenotype[frame]))
             f.close()
 
             self.successMessage('Write report')

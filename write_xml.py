@@ -103,7 +103,20 @@ def get_contours(preds, levels, image_shape):
     return x, y, lumen_pred, plaque_pred
 
 def write_xml(x, y, dims, resolution, speed, frames, pname):
-    """write an xml file of contour data"""
+    """Write an xml file of contour data
+
+    Args:
+        x: list, where alternating entries are lists of lume/plaque x points
+        y: list, where alternating entries are lists of lume/plaque y points
+        dims: list, where entries are image height, width and number of images
+        resolution: float, image resolution (mm)
+        speed: float, speed of pullback mm/s
+        frames: list, each entry is an integer indicating that contour is to be included in the output file
+        pname: string: name of the output file
+    Returns:
+        None
+    """
+
     num_frames = dims[0]
     root = et.Element('AnalysisState')
     analyzedfilename = et.SubElement(root, 'AnalyzedFileName')

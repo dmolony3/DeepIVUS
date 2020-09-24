@@ -10,9 +10,9 @@ class Point(QGraphicsEllipseItem):
     def __init__(self, pos, color):
         super(Point, self).__init__()
         if color =='y':
-            self.defaultColor = QPen(Qt.yellow, 2)
+            self.defaultColor = QPen(Qt.yellow, 5)
         else:
-            self.defaultColor = QPen(Qt.red, 2)
+            self.defaultColor = QPen(Qt.red, 5)
 
         self.setPen(self.defaultColor)
         self.setRect(pos[0], pos[1], 3, 3)
