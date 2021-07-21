@@ -11,8 +11,10 @@ class Point(QGraphicsEllipseItem):
         super(Point, self).__init__()
         if color =='y':
             self.defaultColor = QPen(Qt.yellow, 5)
-        else:
+        elif color =='r':
             self.defaultColor = QPen(Qt.red, 5)
+        else:
+            self.defaultColor = QPen(Qt.blue, 5)
 
         self.setPen(self.defaultColor)
         self.setRect(pos[0], pos[1], 3, 3)
@@ -23,6 +25,9 @@ class Point(QGraphicsEllipseItem):
         dist = np.sqrt((self.rect().x() - pos.x())**2 + (self.rect().y() - pos.y())**2)
 
         return dist
+
+    def getPoint(self):
+        return self.rect().x(), self.rect().y()
 		
     def updateColor(self): 
         self.setPen(QPen(Qt.blue, 2))
@@ -44,8 +49,10 @@ class Spline(QGraphicsPathItem):
 
         if color =='y':
             self.setPen(QPen(Qt.yellow, 2))
-        else:
+        elif color == "r":
             self.setPen(QPen(Qt.red, 2))
+        else:
+            self.setPen(QPen(Qt.blue, 2))
 			
     def setKnotPoints(self, knotPoints):
         """KnotPoints is a list of points"""
@@ -71,8 +78,12 @@ class Spline(QGraphicsPathItem):
         return (x_new, y_new)
         
     def update(self, pos, idx):
-        self.knotPoints[0][idx] = pos.x()
-        self.knotPoints[1][idx] = pos.y()
+        if idx == len(self.knotPoints[0]) + 1:
+            self.knotPoints[0].append(pos.x())
+            self.knotPoints[1].append(pos.y())
+        else:
+            self.knotPoints[0][idx] = pos.x()
+            self.knotPoints[1][idx] = pos.y()
         self.points = self.interpolate(self.knotPoints)
         for i in range(0, len(self.points[0])):
             self.path.setElementPositionAt(i, self.points[0][i], self.points[1][i])

@@ -207,7 +207,7 @@ def write_xml(x, y, dims, resolution, speed, frames, pname):
                 for k in range(len(x[frame_idx*2+j])):
                     p = et.SubElement(ctr, 'p')
                     p.text = str(int(x[frame_idx*2+j][k])) + ',' + str(int(y[frame_idx*2+j][k]))
-  
+                #print(frame_idx, len(x[frame_idx*2+j]))
  
     tree = et.ElementTree(root)
     tree.write(pname+'_contours.xml')

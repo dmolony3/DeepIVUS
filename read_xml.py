@@ -53,7 +53,6 @@ def read(path, frames=[]):
             xres = imageCalibration.find('XCalibration').text
             yres = imageCalibration.find('YCalibration').text
             pullbackSpeed = imageCalibration.find('PullbackSpeed').text
-            #frameTime = imageCalibration.find('FrameTimeInMs').text
 
         for frameState in child.iter('FrameState'):
             xOffSet = frameState.find('Xoffset').text
@@ -108,4 +107,5 @@ def read(path, frames=[]):
     print((xdim, ydim, zdim))
     print((xres, yres))
 
-    return (Lx, Ly), (Vx, Vy), (Sx, Sy), [xres, yres], framelist
+    #return (Lx, Ly), (Vx, Vy), (Sx, Sy), [xres, yres], framelist
+    return (Lx, Ly), (Vx, Vy), (Sx, Sy), [xres, yres], [xdim, ydim, zdim]

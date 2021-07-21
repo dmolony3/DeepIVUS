@@ -33,16 +33,23 @@ class Display(QGraphicsView):
         self.frame = 0
         self.lumen = ([], [])
         self.plaque = ([], [])
+        self.stent = ([], [])
         self.hide = True
+        self.draw = False
+        self.drawPoints = []
+        self.edit_selection = None
+        self.splineDrawn = False
+        self.newSpline = None
         self.enable_drag = True
         self.activePoint = None
         self.innerPoint = []
         self.outerPoint = []
+        self.display_size = 800
 
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
-        self.image = QGraphicsPixmapItem(QPixmap(500, 500))
+        self.image = QGraphicsPixmapItem(QPixmap(self.display_size, self.display_size))
         self.scene.addItem(self.image)
         self.setScene(self.scene)
 
@@ -66,19 +73,23 @@ class Display(QGraphicsView):
     def mousePressEvent(self, event):
         super(Display, self).mousePressEvent(event)
 
-        # identify which point has been clicked
-        items = self.items(event.pos())
-        for item in items:
-            if item in self.innerPoint:
-                # Convert mouse position to item position https://stackoverflow.com/questions/53627056/how-to-get-cursor-click-position-in-qgraphicsitem-coordinate-system
-                self.pointIdx = [i for i, checkItem in enumerate(self.innerPoint) if item == checkItem][0]
-                #print(self.pointIdx, 'Item found')
-                self.activeContour = 1
-                self.findItem(item, event.pos())
-            elif item in self.outerPoint:
-                self.pointIdx = [i for i, checkItem in enumerate(self.outerPoint) if item == checkItem][0]
-                self.activeContour = 2
-                self.findItem(item, event.pos())
+        if self.draw:
+            pos = self.mapToScene(event.pos())
+            self.addManualSpline(pos)
+        else:
+            # identify which point has been clicked
+            items = self.items(event.pos())
+            for item in items:
+                if item in self.innerPoint:
+                    # Convert mouse position to item position https://stackoverflow.com/questions/53627056/how-to-get-cursor-click-position-in-qgraphicsitem-coordinate-system
+                    self.pointIdx = [i for i, checkItem in enumerate(self.innerPoint) if item == checkItem][0]
+                    #print(self.pointIdx, 'Item found')
+                    self.activeContour = 1
+                    self.findItem(item, event.pos())
+                elif item in self.outerPoint:
+                    self.pointIdx = [i for i, checkItem in enumerate(self.outerPoint) if item == checkItem][0]
+                    self.activeContour = 2
+                    self.findItem(item, event.pos())
 
     def mouseReleaseEvent(self, event):
         if self.pointIdx is not None:
@@ -98,10 +109,13 @@ class Display(QGraphicsView):
                 self.outerSpline.update(newPos, self.pointIdx)
             #self.disable_drag = False
 
-    def setData(self, lumen, plaque, images):
+
+    def setData(self, lumen, plaque, stent, images):
         self.numberOfFrames = images.shape[0]
         #lumen, plaque = self.resizeContours(lumen, plaque, scale)
-        self.lumen, self.plaque = self.downsample(lumen, plaque)
+        self.lumen = self.downsample(lumen)
+        self.plaque = self.downsample(plaque)
+        self.stent = self.downsample(stent)
         self.images = images
         self.imsize = self.images.shape
         self.displayImage()
@@ -149,35 +163,21 @@ class Display(QGraphicsView):
                
         return lumenContour, plaqueContour
 
-    def downsample(self, lumen, plaque, num_points=20):
+
+    def downsample(self, contours, num_points=20):
         """Downsamples input contour data by selecting n points from original contour"""
 
-        numberOfFrames = len(lumen[0])
+        numberOfFrames = len(contours[0])
 
-        lumenDownsampled = [[] for idx in range(numberOfFrames)], [[] for idx in range(numberOfFrames)]
-        plaqueDownsampled = [[] for idx in range(numberOfFrames)], [[] for idx in range(numberOfFrames)]
+        downsampled = [[] for idx in range(numberOfFrames)], [[] for idx in range(numberOfFrames)]
 
-        for i in range(len(lumen[0])):
-            if lumen[0][i]:
-                idx = len(lumen[0][i])//num_points
-                lumenDownsampled[0][i] = [pnt for j, pnt in enumerate(lumen[0][i]) if j % idx == 0]
-                lumenDownsampled[1][i] = [pnt for j, pnt in enumerate(lumen[1][i]) if j % idx == 0]
-            if plaque[0][i]:
-                idx = len(plaque[0][i])//num_points
-                plaqueDownsampled[0][i] = [pnt for j, pnt in enumerate(plaque[0][i]) if j % idx == 0]
-                plaqueDownsampled[1][i] = [pnt for j, pnt in enumerate(plaque[1][i]) if j % idx == 0]
+        for i in range(numberOfFrames):
+            if contours[0][i]:
+                idx = len(contours[0][i])//num_points
+                downsampled[0][i] = [pnt for j, pnt in enumerate(contours[0][i]) if j % idx == 0]
+                downsampled[1][i] = [pnt for j, pnt in enumerate(contours[1][i]) if j % idx == 0]
 
-        return lumenDownsampled, plaqueDownsampled
-
-    def cart2pol(self, lumen):
-        """Converts points from cartesian to polar"""
-
-        center = [sum(lumen[0])/len(lumen[0]), sum(lumen[1])/len(lumen[1])]
-        lumen = [[pnt - center[0] for pnt in lumen[0]], [pnt - center[1] for pnt in lumen[1]]]
-        #r = [math.sqrt(lumen[0][i]**2 + lumen[1][i]**2) for i in range(len(lumen[0]))]
-        theta = [math.atan2(lumen[1][i], lumen[0][i]) + math.pi for i in range(len(lumen[0]))]
-
-        return theta
+        return downsampled
 
     def displayImage(self):
         """Clears scene and displays current image and splines"""
@@ -191,11 +191,11 @@ class Display(QGraphicsView):
         self.pointIdx = None
 
         if len(self.images.shape) == 3:
-            self.image=QImage(self.images[self.frame, : ,:], self.imsize[1], self.imsize[2], QImage.Format_Grayscale8)
+            self.image=QImage(self.images[self.frame, : ,:], self.imsize[1], self.imsize[2], QImage.Format_Grayscale8).scaled(self.display_size, self.display_size, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
         else:
             bytesPerLine = 3*self.imsize[2]
             current_image = self.images[self.frame, : ,:, :].astype(np.uint8, order='C', casting='unsafe')
-            self.image=QImage(current_image.data, self.imsize[1], self.imsize[2], bytesPerLine, QImage.Format_RGB888) 
+            self.image=QImage(current_image.data, self.imsize[1], self.imsize[2], bytesPerLine, QImage.Format_RGB888).scaled(self.display_size, self.display_size, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) 
 
         image = QPixmap.fromImage(self.image)
 
@@ -203,29 +203,86 @@ class Display(QGraphicsView):
         self.scene.addItem(self.image)
 
         if not self.hide:
-            if self.lumen[0]:
-                if self.lumen[0][self.frame]:
-                    self.addInteractiveSplines(self.lumen, self.plaque)
+            if self.lumen[0] or self.plaque[0] or self.stent[0]:
+                self.addInteractiveSplines(self.lumen, self.plaque, self.stent)
 
         self.setScene(self.scene)
         
-    def addInteractiveSplines(self, lumen, plaque):
+    def addInteractiveSplines(self, lumen, plaque, stent):
         """Adds inner and outer splines to scene"""
 
-        self.innerSpline = Spline([lumen[0][self.frame], lumen[1][self.frame]], 'r')
-        self.outerSpline = Spline([plaque[0][self.frame], plaque[1][self.frame]], 'y')
+        contour_scaling_factor = self.display_size/self.imsize[1]
+        if lumen[0][self.frame]:
+            lumen_x = [val*contour_scaling_factor for val in lumen[0][self.frame]]
+            lumen_y = [val*contour_scaling_factor for val in lumen[1][self.frame]]
+            self.innerSpline = Spline([lumen_x, lumen_y], 'r')
+            self.innerPoint = [Point((self.innerSpline.knotPoints[0][idx], self.innerSpline.knotPoints[1][idx]), 'r') for idx in range(len(self.innerSpline.knotPoints[0])-1)]
+            [self.scene.addItem(point) for point in self.innerPoint]        
+            self.scene.addItem(self.innerSpline)
 
-        self.innerPoint = [Point((self.innerSpline.knotPoints[0][idx], self.innerSpline.knotPoints[1][idx]), 'r') for idx in range(len(self.innerSpline.knotPoints[0])-1)]
-        self.outerPoint = [Point((self.outerSpline.knotPoints[0][idx], self.outerSpline.knotPoints[1][idx]), 'y') for idx in range(len(self.outerSpline.knotPoints[0])-1)] # IMPORTANT TO NOT INCLUDE LAST COPIED KNOT POINT DUE TO PERIODICITY
+        if plaque[0][self.frame]:
+            plaque_x = [val*contour_scaling_factor for val in plaque[0][self.frame]]
+            plaque_y = [val*contour_scaling_factor for val in plaque[1][self.frame]]
+            self.outerSpline = Spline([plaque_x, plaque_y], 'y')
+            self.outerPoint = [Point((self.outerSpline.knotPoints[0][idx], self.outerSpline.knotPoints[1][idx]), 'y') for idx in range(len(self.outerSpline.knotPoints[0])-1)] # IMPORTANT TO NOT INCLUDE LAST COPIED KNOT POINT DUE TO PERIODICITY
+            [self.scene.addItem(point) for point in self.outerPoint] 
+            self.scene.addItem(self.outerSpline)
 
-        [self.scene.addItem(point) for point in self.innerPoint]        
-        [self.scene.addItem(point) for point in self.outerPoint] 
-       
-        self.scene.addItem(self.innerSpline)
-        self.scene.addItem(self.outerSpline)
+    def addManualSpline(self, point):
+        """Creates an interactive spline manually point by point"""
 
-    def run(self): 
+        if not self.drawPoints:
+            self.splineDrawn = False
+
+        self.drawPoints.append(Point((point.x(), point.y()), 'b'))
+        self.scene.addItem(self.drawPoints[-1])
+
+        if len(self.drawPoints) > 3:
+            if not self.splineDrawn:
+                self.newSpline = Spline([[point.getPoint()[0] for point in self.drawPoints], [point.getPoint()[1] for point in self.drawPoints]], 'c')
+                self.scene.addItem(self.newSpline)
+                self.splineDrawn = True
+            else:
+                self.newSpline.update(point, len(self.drawPoints))
+
+        if len(self.drawPoints) > 1:
+            dist = math.sqrt((point.x() - self.drawPoints[0].getPoint()[0])**2 + (point.y() - self.drawPoints[0].getPoint()[1])**2)
+
+            if dist < 10:
+                self.draw = False
+                self.drawPoints = []
+                downsampled = self.downsample(([self.newSpline.points[0].tolist()], [self.newSpline.points[1].tolist()]))
+                scaling_factor = self.display_size/self.imsize[1]
+                if self.edit_selection == 0:
+                    self.stent[0][self.frame] = [val/scaling_factor for val in downsampled[0][0]]
+                    self.stent[1][self.frame] = [val/scaling_factor for val in downsampled[1][0]]
+                elif self.edit_selection == 1:
+                    self.plaque[0][self.frame] = [val/scaling_factor for val in downsampled[0][0]]
+                    self.plaque[1][self.frame] = [val/scaling_factor for val in downsampled[1][0]]
+                elif self.edit_selection == 2:
+                    self.lumen[0][self.frame] = [val/scaling_factor for val in downsampled[0][0]]
+                    self.lumen[1][self.frame] = [val/scaling_factor for val in downsampled[1][0]]
+
+                self.displayImage()
+
+    def run(self):
         self.displayImage()
+
+    def new(self, edit_selection):
+        self.draw = True
+        self.edit_selection = edit_selection
+
+        if self.edit_selection == 0:
+            self.stent[0][self.frame] = []
+            self.stent[1][self.frame] = []
+        elif self.edit_selection == 1:
+            self.plaque[0][self.frame] = []
+            self.plaque[1][self.frame] = []
+        else:
+            self.lumen[0][self.frame] = []
+            self.lumen[1][self.frame] = [] 
+
+        self.displayImage()     
 		
     def setFrame(self, value):
         self.frame = value

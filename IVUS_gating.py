@@ -4,6 +4,10 @@ from PyQt5.QtCore import Qt
 
 def IVUS_gating(images, speed, frame_rate):
     """Performs gating of IVUS images"""
+
+    if len(images.shape) == 4:
+        images = images[:, :, :, 0]
+
     num_images = images.shape[0]
     pullback = speed*(num_images-1)/frame_rate # first image is recorded instantly so no time delay
 
@@ -21,6 +25,7 @@ def IVUS_gating(images, speed, frame_rate):
     progress.setValue(0) # trick to make progress bar appear
     progress.setWindowTitle("Computing end diastolic images")
     progress.show()
+
     for i in range(num_images-1):
         C = normxcorr(images[i, :, :], images[i+1, :, :])
         s0[i] = 1 - np.max(C)

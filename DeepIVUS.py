@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QSlider, QApplication, QHeaderView,
-    QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, QLabel, QSizePolicy, QInputDialog, QErrorMessage, QMessageBox, QLineEdit, QFileDialog, QTableWidget, QTableWidgetItem)
+    QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, QLabel, QSizePolicy, QInputDialog, QDialog, QErrorMessage, QMessageBox, QLineEdit, QFileDialog, QTableWidget, QTableWidgetItem)
 from PyQt5.QtCore import QObject, Qt, pyqtSignal, QSize
 from PyQt5.QtGui import QPainter, QFont, QColor, QPen, QIcon
 from IVUS_gating import IVUS_gating
@@ -26,8 +26,8 @@ class Slider(QSlider):
         sizePolicy.setHorizontalPolicy(QSizePolicy.Fixed)
         sizePolicy.setVerticalPolicy(QSizePolicy.Fixed)
         self.setSizePolicy(sizePolicy)
-        self.setMinimumSize(QSize(500, 25))
-        self.setMaximumSize(QSize(500, 25))
+        self.setMinimumSize(QSize(800, 25))
+        self.setMaximumSize(QSize(800, 25))
         self.gatedFrames = []
 
     def keyPressEvent(self, event):
@@ -107,8 +107,10 @@ class Master(QMainWindow):
         self.initUI()
 
     def initUI(self):
-        self.setGeometry(300, 100, 1000, 750)
+        self.setGeometry(100, 100, 1200, 1200)
+        self.display_size = 800
         self.addToolBar("MY Window")
+        self.showMaximized()
 
         layout = QHBoxLayout()
         vbox1 = QVBoxLayout()
@@ -124,8 +126,17 @@ class Master(QMainWindow):
         contoursButton = QPushButton('Read Contours')
         gatingButton = QPushButton('Extract Diastolic Frames')
         segmentButton = QPushButton('Segment')
+        splineButton = QPushButton('Manual Contour')
         writeButton = QPushButton('Write Contours')
         reportButton = QPushButton('Write Report')
+
+        dicomButton.setToolTip("Load images in .dcm format")
+        contoursButton.setToolTip("Load saved contours in .xml format")
+        gatingButton.setToolTip("Extract end diastolic images from pullback")
+        segmentButton.setToolTip("Run deep learning based segmentation of lumen and plaque")
+        splineButton.setToolTip("Manually draw new contour for lumen, plaque or stent")
+        writeButton.setToolTip("Save contours in .xml file")
+        reportButton.setToolTip("Write report containing, lumen, plaque and vessel areas and plaque burden")
 
         hideHeader1 = QHeaderView(Qt.Vertical)
         hideHeader1.hide()
@@ -149,6 +160,7 @@ class Master(QMainWindow):
         dicomButton.clicked.connect(self.readDICOM)
         contoursButton.clicked.connect(self.readContours)
         segmentButton.clicked.connect(self.segment)
+        splineButton.clicked.connect(self.newSpline)
         gatingButton.clicked.connect(self.gate)
         writeButton.clicked.connect(self.writeContours)
         reportButton.clicked.connect(self.report)
@@ -183,6 +195,7 @@ class Master(QMainWindow):
         vbox2.addWidget(contoursButton)
         vbox2.addWidget(gatingButton)
         vbox2.addWidget(segmentButton)
+        vbox2.addWidget(splineButton)
         vbox2.addWidget(writeButton)
         vbox2.addWidget(reportButton)
         vbox2hbox1.addWidget(self.infoTable)
@@ -236,7 +249,8 @@ class Master(QMainWindow):
         elif self.dicom.get(0x000b1001):
             self.ivusPullbackRate = self.dicom[0x000b1001].value
         else:
-            self.ivusPullbackRate = ''
+            self.ivusPullbackRate, _ = QInputDialog.getText(self, "Pullback Speed", "No pullback speed found, please enter pullback speeed (mm/s)", QLineEdit.Normal, "0.5")
+            self.ivusPullbackRate = float(self.ivusPullbackRate)
 
         if self.dicom.get('FrameTimeVector'):
             frameTimeVector = self.dicom.get('FrameTimeVector')
@@ -244,7 +258,7 @@ class Master(QMainWindow):
             pullbackTime = np.cumsum(frameTimeVector)/1000 # assume in ms
             self.pullbackLength = pullbackTime*float(self.ivusPullbackRate)
         else:
-            self.pullbackLength = np.zeros(self.images.shape[0], 1)
+            self.pullbackLength = np.zeros((self.images.shape[0], ))
 
         if self.dicom.get('SequenceOfUltrasoundRegions'):
             if self.dicom.SequenceOfUltrasoundRegions[0].PhysicalUnitsXDirection == 3:
@@ -274,6 +288,12 @@ class Master(QMainWindow):
         else:
             self.model = 'Unknown'
 
+        # if pixel data is described by luminance (Y) and chominance (B & R)
+        # only occurs when SamplesPerPixel==3
+        #if self.dicom.get('PhotometricInterpretation') == 'YBR_FULL_422':
+        #    #self.images = np.mean(self.images, 3, dtype=np.uint8)
+        #    self.images = np.ascontiguousarray(self.images)[:, :, :, 0]
+
     def readDICOM(self):
         """Reads DICOM images.
 
@@ -287,7 +307,7 @@ class Master(QMainWindow):
 
         if fileName:
             try :
-                self.dicom = dcm.read_file(fileName)
+                self.dicom = dcm.read_file(fileName, force=True)
                 self.images = self.dicom.pixel_array
             except:
                 error = QMessageBox()
@@ -320,8 +340,9 @@ class Master(QMainWindow):
             if not self.lumen or reinitializeContours:
                 self.lumen = ([[] for idx in range(self.numberOfFrames)], [[] for idx in range(self.numberOfFrames)])
                 self.plaque = ([[] for idx in range(self.numberOfFrames)], [[] for idx in range(self.numberOfFrames)])
+                self.stent = ([[] for idx in range(self.numberOfFrames)], [[] for idx in range(self.numberOfFrames)])
 
-            self.wid.setData(self.lumen, self.plaque, self.images)
+            self.wid.setData(self.lumen, self.plaque, self.stent, self.images)
             self.slider.setValue(self.numberOfFrames-1)
 
     def readContours(self):
@@ -354,8 +375,7 @@ class Master(QMainWindow):
                     self.plaque = self.mapToList(self.plaque)
                     self.stent = self.mapToList(self.stent)
                     self.contours=True
-                    #self.resizeContours()
-                    self.wid.setData(self.lumen, self.plaque, self.images)
+                    self.wid.setData(self.lumen, self.plaque, self.stent, self.images)
                     self.hideBox.setChecked(False)
 
                     gatedFrames = [frame for frame in range(len(self.lumen[0])) if self.lumen[0][frame] or self.plaque[0][frame]]
@@ -404,7 +424,7 @@ class Master(QMainWindow):
                 frames = list(range(self.numberOfFrames))
 
             f = open(patientName + '_report.txt', 'w')
-            f.write('Frame\tPosition\tLumen area\tPlaque area\tVessel area\tPlaque burden\tphenotype\n')
+            f.write('Frame\tPosition (mm)\tLumen area (mm\N{SUPERSCRIPT TWO})\tPlaque area (mm\N{SUPERSCRIPT TWO})\tVessel area (mm\N{SUPERSCRIPT TWO})\tPlaque burden (%)\tphenotype\n')
 
             for i, frame in enumerate(frames):
                 f.write('{}\t{:.2f}\t{:.2f}\t{:.2f}\t{:.2f}\t{:.2f}\t{}\n'.format(frame, self.pullbackLength[frame], lumen_area[frame], plaque_area[frame], vessel_area[frame], plaque_burden[frame], phenotype[frame]))
@@ -476,11 +496,31 @@ class Master(QMainWindow):
         # stent contours currently unsupported so create empty list
         self.stent = [[[] for i in range(image_dim[0])], [[] for i in range(image_dim[0])]]
 
-        self.wid.setData(self.lumen, self.plaque, self.images)
+        self.wid.setData(self.lumen, self.plaque, self.stent, self.images)
         self.hideBox.setChecked(False)
-        #self.resizeContours()
         self.successMessage('Segmentation')
+   
+    def newSpline(self):
+        """Create a message box to choose what spline to create"""
 
+        b3 = QPushButton("lumen")
+        b2 = QPushButton("Vessel")
+        b1 = QPushButton("Stent")
+
+        d = QMessageBox()
+        d.setText("Select which contour to draw")
+        d.setInformativeText("Contour must be closed before proceeding by clicking on initial point")
+        d.setWindowModality(Qt.WindowModal)
+        d.addButton(b1, 0)
+        d.addButton(b2, 1)
+        d.addButton(b3, 2)
+ 
+        result = d.exec_()
+
+        self.wid.new(result)
+        self.hideBox.setChecked(False)
+        
+ 
     def maskToContours(self, masks):
         """Convert numpy mask to IVUS contours """
 
@@ -512,27 +552,6 @@ class Master(QMainWindow):
                 plaque_burden[i] = (plaque_area[i]/(lumen_area[i] + plaque_area[i]))*100
 
         return (lumen_area, plaque_area, plaque_burden)
-
-    def resizeContours(self):
-        """If image is not 500x500 resize the contours for appropriate display"""
-
-        scale = 500/self.images.shape[1]
-        print('Scaling images by {} for display'.format(scale))
-        self.lumenCopy = (self.lumen[0][:], self.lumen[1][:])
-        self.plaqueCopy = (self.plaque[0][:], self.plaque[1][:])
-        self.stentCopy = (self.stent[0][:], self.stent[1][:])
-        self.lumen = self.resize(self.lumen, scale)
-        self.plaque = self.resize(self.plaque, scale)
-        self.stent = self.resize(self.stent, scale)
-
-    def resize(self, contours, scale):
-        for idx in range(len(contours[0])):
-            if contours[0][idx]:
-                contours[0][idx] = [int(val*scale) for val in contours[0][idx]]
-        for idx in range(len(contours[1])):
-            if contours[0][idx]:
-                contours[1][idx] = [int(val*scale) for val in contours[1][idx]]
-        return (contours[0], contours[1])
 
     def mapToList(self, contours):
         """Converts map to list"""

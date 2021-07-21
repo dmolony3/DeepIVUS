@@ -9,6 +9,7 @@ IMG_MEAN = tf.constant([60.3486], dtype=tf.float32)
 num_classes = 4
 num_phenotypes = 5
 model_path = 'model/' # change this to relative filepath
+#model_path =  '/home/microway/Documents/IVUS/model_2021'
 
 try:
     model = tf.saved_model.load(model_path)
@@ -31,7 +32,7 @@ def set_input_channels(images, channels=3):
         
 def predict(images):
     """Runs Convolutional Neural Network to predict image pixel class"""
-    batch_size = 16
+    batch_size = 64
     dataset = tf.data.Dataset.from_tensor_slices((images))
     dataset = dataset.map(cast_and_center)
     dataset = dataset.batch(batch_size)
