@@ -9,6 +9,7 @@ from display import Display
 import os, sys, time, read_xml
 import pydicom as dcm
 import numpy as np
+from PyQt5 import QtTest
 
 class Communicate(QObject):
     updateBW = pyqtSignal(int)
@@ -58,12 +59,16 @@ class Slider(QSlider):
                 self.setValue(self.value() - 1)
         elif key == Qt.Key_J:
             self.setValue(self.value() - 1)
+            QApplication.processEvents()
             time.sleep(0.1)
             self.setValue(self.value() + 1)
+            QApplication.processEvents()
             time.sleep(0.1)
             self.setValue(self.value() + 1)
+            QApplication.processEvents()
             time.sleep(0.1)
             self.setValue(self.value() - 1)
+            QApplication.processEvents()
 
     def findFrame(self, currentFrame):
         """Find the closest gated frame.
@@ -222,8 +227,16 @@ class Master(QMainWindow):
         elif key == Qt.Key_J:
             currentFrame = self.slider.value()
             self.slider.setValue(currentFrame+1)
+            QApplication.processEvents()
             time.sleep(0.1)
             self.slider.setValue(currentFrame)
+            QApplication.processEvents()
+            time.sleep(0.1)
+            self.slider.setValue(currentFrame-1)
+            QApplication.processEvents()
+            time.sleep(0.1)
+            self.slider.setValue(currentFrame)
+            QApplication.processEvents()
 
     def parseDICOM(self):
         """Parses DICOM metadata"""
@@ -460,6 +473,7 @@ class Master(QMainWindow):
         """Segmentation and phenotyping of IVUS images"""
 
         save_path = os.path.join(os.getcwd(), 'model', 'saved_model.pb')
+        save_path = os.path.join('/home/microway/Documents/IVUS', 'model_2021', 'saved_model.pb')
         if not os.path.isfile(save_path):
             message= "No saved weights have been found, segmentation will be unsuccessful, check that weights are saved in {}".format(os.path.join(os.getcwd(), 'model'))
             error = QMessageBox()
