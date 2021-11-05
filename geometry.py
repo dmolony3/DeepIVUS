@@ -70,6 +70,7 @@ class Spline(QGraphicsPathItem):
         self.knotPoints = knotPoints
 
     def interpolate(self, pts):
+        """Interpolates the spline points at 500 points along spline"""
         pts = np.array(pts)
         tck, u = splprep(pts, u=None, s=0.0, per=1)
         u_new = np.linspace(u.min(), u.max(), 500)
@@ -78,6 +79,12 @@ class Spline(QGraphicsPathItem):
         return (x_new, y_new)
         
     def update(self, pos, idx):
+        """Updates the stored spline everytime it is moved
+        Args:
+            pos: new points coordinates
+            idx: index on spline of updated point
+        """
+        
         if idx == len(self.knotPoints[0]) + 1:
             self.knotPoints[0].append(pos.x())
             self.knotPoints[1].append(pos.y())
