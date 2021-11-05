@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import (QMainWindow, QWidget, QSlider, QApplication, QHeaderView,
+from PyQt5.QtWidgets import (QMainWindow, QWidget, QSlider, QApplication, QHeaderView, QStyle, 
     QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, QLabel, QSizePolicy, QInputDialog, QDialog, QErrorMessage, QMessageBox, QLineEdit, QFileDialog, QTableWidget, QTableWidgetItem)
 from PyQt5.QtCore import QObject, Qt, pyqtSignal, QSize
 from PyQt5.QtGui import QPainter, QFont, QColor, QPen, QIcon
@@ -120,6 +120,8 @@ class Master(QMainWindow):
         layout = QHBoxLayout()
         vbox1 = QVBoxLayout()
         vbox2 = QVBoxLayout()
+        vbox1hbox1 = QHBoxLayout()
+
         vbox1.setContentsMargins(0, 0, 100, 100)
         vbox2.setContentsMargins(100, 0, 0, 100)
         vbox2hbox1 = QHBoxLayout()
@@ -170,6 +172,15 @@ class Master(QMainWindow):
         writeButton.clicked.connect(self.writeContours)
         reportButton.clicked.connect(self.report)
 
+        self.playButton = QPushButton()
+        pixmapi1 = getattr(QStyle, 'SP_MediaPlay')
+        pixmapi2 = getattr(QStyle, 'SP_MediaPause')
+        self.playIcon = self.style().standardIcon(pixmapi1)
+        self.pauseIcon = self.style().standardIcon(pixmapi2)
+        self.playButton.setIcon(self.playIcon)
+        self.playButton.clicked.connect(self.play)
+        self.paused = True
+
         self.slider = Slider(Qt.Horizontal)     
         self.slider.valueChanged[int].connect(self.changeValue)
 
@@ -191,7 +202,9 @@ class Master(QMainWindow):
         self.text.setText("Frame {}".format(self.slider.value())) 
 
         vbox1.addWidget(self.wid)
-        vbox1.addWidget(self.slider)
+        vbox1hbox1.addWidget(self.playButton)
+        vbox1hbox1.addWidget(self.slider)
+        vbox1.addLayout(vbox1hbox1)
         vbox1.addWidget(self.text)
 
         vbox2.addWidget(self.hideBox)
@@ -395,6 +408,26 @@ class Master(QMainWindow):
                     self.gatedFrames = gatedFrames
                     self.useGatedBox.setChecked(True)
                     self.slider.addGatedFrames(self.gatedFrames)
+
+    def play(self):
+        "Plays all frames until end of pullback starting from currently selected frame"""
+        start_frame = self.slider.value()
+
+        if self.paused:
+            self.paused = False
+            self.playButton.setIcon(self.pauseIcon)        
+        else:
+            self.paused = True
+            self.playButton.setIcon(self.playIcon)        
+
+        for frame in range(start_frame, self.numberOfFrames):
+            if not self.paused: 
+                self.slider.setValue(frame)
+                QApplication.processEvents()
+                time.sleep(0.05)
+                self.text.setText("Frame {}".format(frame))     
+
+        self.playButton.setIcon(self.playIcon)        
 
     def writeContours(self):
         """Writes contours to an xml file compatible with Echoplaque"""
