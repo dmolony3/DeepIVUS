@@ -93,9 +93,17 @@ class Display(QGraphicsView):
 
     def mouseReleaseEvent(self, event):
         if self.pointIdx is not None:
+            contour_scaling_factor = self.display_size/self.imsize[1]
             item = self.activePoint
             item.resetColor()
-				
+
+            if self.activeContour == 1:
+                self.lumen[0][self.frame] = [val/contour_scaling_factor for val in self.innerSpline.knotPoints[0]]
+                self.lumen[1][self.frame] = [val/contour_scaling_factor for val in self.innerSpline.knotPoints[1]]
+            elif self.activeContour == 2:
+                self.plaque[0][self.frame] = [val/contour_scaling_factor for val in self.outerSpline.knotPoints[0]]  
+                self.plaque[1][self.frame] = [val/contour_scaling_factor for val in self.outerSpline.knotPoints[1]]
+	
     def mouseMoveEvent(self, event):
         #self.setMouseTracking(True) # if this is disabled mouse tracking only occurs when a button is pressed
         if self.pointIdx is not None:
