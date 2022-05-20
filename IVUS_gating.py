@@ -54,7 +54,7 @@ def IVUS_gating(images, speed, frame_rate):
     Fs = num_images/np.max(t);
     NFFT = int(2**np.ceil(np.log2(np.abs(len(s)))))
     ss = np.fft.fft(s,NFFT, 0)/len(s)
-    freq = Fs/2*np.linspace(0,1,NFFT/2+1)
+    freq = Fs/2*np.linspace(0,1,NFFT//2+1)
 
     # in order to return correct amplitude fft must be divided by length of sample
     freq[freq<0.75]=0
