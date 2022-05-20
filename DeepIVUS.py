@@ -270,10 +270,10 @@ class Master(QMainWindow):
             self.patientSex = 'Unknown'
 
         if self.dicom.get('IVUSPullbackRate'):
-            self.ivusPullbackRate = self.dicom.IVUSPullbackRate
+            self.ivusPullbackRate = float(self.dicom.IVUSPullbackRate)
         # check Boston private tag
         elif self.dicom.get(0x000b1001):
-            self.ivusPullbackRate = self.dicom[0x000b1001].value
+            self.ivusPullbackRate = float(self.dicom[0x000b1001].value)
         else:
             self.ivusPullbackRate, _ = QInputDialog.getText(self, "Pullback Speed", "No pullback speed found, please enter pullback speeed (mm/s)", QLineEdit.Normal, "0.5")
             self.ivusPullbackRate = float(self.ivusPullbackRate)
