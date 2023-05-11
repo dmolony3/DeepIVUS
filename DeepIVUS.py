@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QSlider, QApplication, QHeaderView, QStyle, 
     QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, QLabel, QSizePolicy, QInputDialog, QDialog, QErrorMessage, QMessageBox, QLineEdit, QFileDialog, QTableWidget, QTableWidgetItem)
-from PyQt5.QtCore import QObject, Qt, pyqtSignal, QSize
+from PyQt5.QtCore import QObject, Qt, pyqtSignal, QSize, QTimer
 from PyQt5.QtGui import QPainter, QFont, QColor, QPen, QIcon
 from IVUS_gating import IVUS_gating
 from IVUS_prediction import predict
@@ -9,6 +9,7 @@ from display import Display
 import os, sys, time, read_xml
 import pydicom as dcm
 import numpy as np
+import subprocess
 from PyQt5 import QtTest
 
 class Communicate(QObject):
@@ -227,6 +228,12 @@ class Master(QMainWindow):
         self.show()
         disclaimer = QMessageBox.about(self, 'DeepIVUS', 'DeepIVUS is not FDA approved and should not be used for medical decisions.')
 
+        #pipe = subprocess.Popen(["rm","-r","some.file"])
+        #pipe.communicate() # block until process completes.
+        timer = QTimer(self)
+        timer.timeout.connect(self.autoSave) 
+        timer.start(180000) # autosaves every 3 minutes
+
     def keyPressEvent(self, event):
         key = event.key()
         if key == Qt.Key_Q:
@@ -429,10 +436,11 @@ class Master(QMainWindow):
 
         self.playButton.setIcon(self.playIcon)        
 
-    def writeContours(self):
+    def writeContours(self, fname=None):
         """Writes contours to an xml file compatible with Echoplaque"""
 
         patientName = self.infoTable.item(0, 1).text()
+        saveName = patientName if fname is None else fname
         self.lumen, self.plaque = self.wid.getData()
 
         # reformat data for compatibility with write_xml function
@@ -448,9 +456,16 @@ class Master(QMainWindow):
         else:
             frames = list(range(self.numberOfFrames))
 
-            write_xml(x, y, self.images.shape, self.resolution, self.ivusPullbackRate, frames, patientName)
+            write_xml(x, y, self.images.shape, self.resolution, self.ivusPullbackRate, frames, saveName)
+            if fname is None:
+                self.successMessage('Writing contours')
 
-            self.successMessage('Writing contours')
+    def autoSave(self):
+        """Automatically saves contours to a temporary file every 180 seconds"""
+
+        if self.contours:
+            print('Automatically saving current contours')
+            self.writeContours('temp')
 
     def report(self):
         """Writes a report file containing lumen area, plaque, area, vessel area, plaque burden, phenotype"""
