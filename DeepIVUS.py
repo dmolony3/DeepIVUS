@@ -10,7 +10,9 @@ import os, sys, time, read_xml
 import pydicom as dcm
 import numpy as np
 import subprocess
+import click
 from PyQt5 import QtTest
+from PIL import Image
 
 class Communicate(QObject):
     updateBW = pyqtSignal(int)
@@ -520,10 +522,11 @@ class Master(QMainWindow):
     def segment(self):
         """Segmentation and phenotyping of IVUS images"""
 
-        save_path = os.path.join(os.getcwd(), 'model', 'saved_model.pb')
-        save_path = os.path.join('/home/microway/Documents/IVUS', 'model_2021', 'saved_model.pb')
+        save_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'model', 'saved_model.pb')
+        #save_path = os.path.join('/home/microway/Documents/IVUS', 'model_2021', 'saved_model.pb')
+        print(Path(__file__).parent.resolve())
         if not os.path.isfile(save_path):
-            message= "No saved weights have been found, segmentation will be unsuccessful, check that weights are saved in {}".format(os.path.join(os.getcwd(), 'model'))
+            message= "No saved weights have been found, segmentation will be unsuccessful, check that weights are saved in {}".format(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'model'))
             error = QMessageBox()
             error.setIcon(QMessageBox.Critical)
             error.setWindowTitle("Error")
@@ -581,8 +584,7 @@ class Master(QMainWindow):
 
         self.wid.new(result)
         self.hideBox.setChecked(False)
-        
- 
+    
     def maskToContours(self, masks):
         """Convert numpy mask to IVUS contours """
 
@@ -654,8 +656,119 @@ class Master(QMainWindow):
         success.setText(task + ' has been successfully completed')
         success.exec_()
 
-if __name__ == '__main__':
+@click.group()
+def cli():
+    pass
     
+@cli.command()
+@click.argument("dicom_path")
+@click.option('--gated', '-g', is_flag=True, help="Select whether gated images should be segmented")
+@click.option('--fname', '-f', default="contours", type=str, help="Output filename for the contours")
+def segment(dicom_path, gated, fname):
+    #"python DeepIVUS.py segment C:\Users\David\Downloads\FILE0000 -g=True"
+    click.echo(dicom_path)
+    dicom = dcm.read_file(dicom_path, force=True)
+    images = dicom.pixel_array
+    click.echo("Successfully read dicom file")
+    numberOfFrames = dicom.NumberOfFrames
+    resolution = dicom.PixelSpacing[0]
+
+    if dicom.get('IVUSPullbackRate'):
+       ivusPullbackRate = float(dicom.IVUSPullbackRate)
+    elif dicom.get('0x000b1001'):
+        # check Boston private tag
+        ivusPullbackRate = float(dicom[0x000b1001].value)
+    else:
+        ivusPullbackRate = 0.5
+
+    if gated:
+        gatedFrames = IVUS_gating(images, ivusPullbackRate, dicom.CineRate, False)
+        click.echo("Segmenting gated images")
+        image_dim = images.shape
+        masks = np.zeros((numberOfFrames, image_dim[1], image_dim[2]), dtype=np.uint8)
+        #masks_gated = predict(images[gatedFrames, : ,:])
+        masks_gated = np.ones((numberOfFrames, image_dim[1], image_dim[2]), dtype=np.uint8)
+        masks[gatedFrames, :, :] = masks_gated
+    else:
+        masks = predict(images)
+
+    levels = [1.5, 2.5]
+    #metrics = self.computeMetrics(masks)
+    image_shape = masks.shape[1:3]
+    masks = mask_image(masks, catheter=0)
+    _, _, lumen, plaque = get_contours(masks, levels, image_shape) 
+    
+    x, y = [], []
+    for i in range(len(lumen[0])):
+        x.append(lumen[0][i])
+        x.append(plaque[0][i])
+        y.append(lumen[1][i])
+        y.append(plaque[1][i])
+
+    frames = list(range(numberOfFrames))
+    write_xml(x, y, images.shape, resolution, ivusPullbackRate, frames, fname)
+
+    """Writes a report file containing lumen area, plaque, area, vessel area, plaque burden, phenotype"""
+    numberOfFrames = len(lumen[0])
+    lumen_area = np.zeros((numberOfFrames))
+    plaque_area = np.zeros_like(lumen_area)
+    plaque_burden = np.zeros_like(lumen_area)
+    for i in range(numberOfFrames):
+        if lumen[0][i]:
+            lumen_area[i] = (0.5*np.abs(np.dot(lumen[0][i],np.roll(lumen[1][i],1))-np.dot(lumen[1][i],np.roll(lumen[0][i],1))))*resolution**2
+            plaque_area[i] = (0.5*np.abs(np.dot(plaque[0][i],np.roll(plaque[1][i],1))-np.dot(plaque[1][i],np.roll(plaque[0][i],1))))*resolution**2
+            plaque_burden[i] = (plaque_area[i]/(lumen_area[i] + plaque_area[i]))*100
+
+    phenotype = [0]*numberOfFrames
+    patientName = self.infoTable.item(0, 1).text()
+    vessel_area = lumen_area + plaque_area
+
+    f = open(patientName + '_report.txt', 'w')
+    f.write('Frame\tPosition (mm)\tLumen area (mm\N{SUPERSCRIPT TWO})\tPlaque area (mm\N{SUPERSCRIPT TWO})\tVessel area (mm\N{SUPERSCRIPT TWO})\tPlaque burden (%)\tphenotype\n')
+
+    click.echo("Writing report")
+    for i, frame in enumerate(frames):
+        f.write('{}\t{:.2f}\t{:.2f}\t{:.2f}\t{:.2f}\t{:.2f}\t{}\n'.format(frame, self.pullbackLength[frame], lumen_area[frame], plaque_area[frame], vessel_area[frame], plaque_burden[frame], phenotype[frame]))
+    f.close()
+            
+@cli.command()
+@click.argument("dicom_path")
+@click.option('--write', '-w', is_flag=True, help="Write gated frames as jpgs")
+def gate(dicom_path, write):
+    dicom = dcm.read_file(dicom_path, force=True)
+    images = dicom.pixel_array
+    click.echo("Successfully read dicom file")
+
+    if dicom.get('IVUSPullbackRate'):
+       ivusPullbackRate = float(dicom.IVUSPullbackRate)
+    elif dicom.get('0x000b1001'):
+        # check Boston private tag
+        ivusPullbackRate = float(dicom[0x000b1001].value)
+    else:
+        ivusPullbackRate = 0.5
+
+    click.echo("Writing end diastolic frame numbers to file")
+    gatedFrames = IVUS_gating(images, ivusPullbackRate, dicom.CineRate, False)
+    f = open("gated_idx.txt", "w")
+    [f.write(f"{val}\n") for val in gatedFrames]
+    f.close()
+    
+    if write is not None:
+        click.echo("Writing end diastolic images")
+        for i in range(len(gatedFrames)):
+            img = Image.fromarray(images[gatedFrames[i], :, :])
+            img.save(f"{gatedFrames[i]}.jpg")
+
+@cli.command()
+def gui():
+    click.echo("Launching DeepIVUS from CLI")
     app = QApplication(sys.argv)
     ex = Master()
     sys.exit(app.exec_())
+
+
+if __name__ == '__main__':
+    cli()
+    #app = QApplication(sys.argv)
+    #ex = Master()
+    #sys.exit(app.exec_())
