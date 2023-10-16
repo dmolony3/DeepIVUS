@@ -9,12 +9,12 @@ IMG_MEAN = tf.constant([60.3486], dtype=tf.float32)
 num_classes = 4
 num_phenotypes = 5
 model_path = 'model/' # change this to relative filepath
-#model_path =  '/home/microway/Documents/IVUS/model_2021'
+model_path =  os.path.join(os.path.dirname(os.path.realpath(__file__)), 'model')
 
 try:
     model = tf.saved_model.load(model_path)
 except:
-    warning = ("Warning:  No saved weights have been found, segmentation will be unsuccessful, check that weights are saved in {}".format(os.path.join(os.getcwd(), 'model')))
+    warning = ("Warning:  No saved weights have been found, segmentation will be unsuccessful, check that weights are saved in {}".format(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'model')))
     print(warning)
    
 def cast_and_center(image):
