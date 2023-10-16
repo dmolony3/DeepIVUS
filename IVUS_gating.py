@@ -2,7 +2,7 @@ import numpy as np
 from PyQt5.QtWidgets import QProgressDialog
 from PyQt5.QtCore import Qt
 
-def IVUS_gating(images, speed, frame_rate):
+def IVUS_gating(images, speed, frame_rate, show_progress=True):
     """Performs gating of IVUS images"""
 
     if len(images.shape) == 4:
@@ -14,17 +14,18 @@ def IVUS_gating(images, speed, frame_rate):
     s0 = np.zeros((num_images-1, 1))
     s1 = np.zeros((num_images-1, 1))
 
-    progress = QProgressDialog()
-    progress.setWindowFlags(Qt.Dialog)
-    progress.setModal(True)
-    progress.setMinimum(0)  
-    progress.setMaximum(num_images-1)
-    progress.resize(500,100)
-    progress.setValue(0)
-    progress.setValue(1)
-    progress.setValue(0) # trick to make progress bar appear
-    progress.setWindowTitle("Computing end diastolic images")
-    progress.show()
+    if show_progress:
+        progress = QProgressDialog()
+        progress.setWindowFlags(Qt.Dialog)
+        progress.setModal(True)
+        progress.setMinimum(0)  
+        progress.setMaximum(num_images-1)
+        progress.resize(500,100)
+        progress.setValue(0)
+        progress.setValue(1)
+        progress.setValue(0) # trick to make progress bar appear
+        progress.setWindowTitle("Computing end diastolic images")
+        progress.show()
 
     for i in range(num_images-1):
         C = normxcorr(images[i, :, :], images[i+1, :, :])
@@ -32,13 +33,15 @@ def IVUS_gating(images, speed, frame_rate):
         gradx, grady = np.gradient(images[i, :, :])
         gradmag = abs(np.sqrt(gradx**2 + grady**2))
         s1[i] = -np.sum(gradmag)
-        progress.setValue(i)
-        if progress.wasCanceled():
-            break
+        if show_progress:
+            progress.setValue(i)
+            if progress.wasCanceled():
+                break
 
-    if progress.wasCanceled():
-        return None
-    progress.close()
+    if show_progress:
+        if progress.wasCanceled():
+            return None
+        progress.close()
     # normalize data
     s0_plus = s0 - np.min(s0)
     s1_plus = s1 - np.min(s1)
