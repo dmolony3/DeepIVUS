@@ -17,7 +17,7 @@
 
 ## Installation
 
-#### Installion
+#### Installation
 It is recommended to first setup a virtual environment using Anaconda or another environment manager
 ```
 git clone https://github.com/dmolony3/DeepIVUS.git
