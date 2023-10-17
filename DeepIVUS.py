@@ -1,18 +1,17 @@
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QSlider, QApplication, QHeaderView, QStyle, 
-    QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, QLabel, QSizePolicy, QInputDialog, QDialog, QErrorMessage, QMessageBox, QLineEdit, QFileDialog, QTableWidget, QTableWidgetItem)
+    QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, QLabel, QSizePolicy, QInputDialog, QErrorMessage, QMessageBox, QLineEdit, QFileDialog, QTableWidget, QTableWidgetItem)
 from PyQt5.QtCore import QObject, Qt, pyqtSignal, QSize, QTimer
-from PyQt5.QtGui import QPainter, QFont, QColor, QPen, QIcon
+from PyQt5.QtGui import QIcon
 from IVUS_gating import IVUS_gating
 from IVUS_prediction import predict
 from write_xml import write_xml, get_contours, mask_image
 from display import Display
+from PIL import Image
 import os, sys, time, read_xml
 import pydicom as dcm
 import numpy as np
 import subprocess
 import click
-from PyQt5 import QtTest
-from PIL import Image
 
 class Communicate(QObject):
     updateBW = pyqtSignal(int)
@@ -524,7 +523,7 @@ class Master(QMainWindow):
 
         save_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'model', 'saved_model.pb')
         #save_path = os.path.join('/home/microway/Documents/IVUS', 'model_2021', 'saved_model.pb')
-        print(Path(__file__).parent.resolve())
+
         if not os.path.isfile(save_path):
             message= "No saved weights have been found, segmentation will be unsuccessful, check that weights are saved in {}".format(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'model'))
             error = QMessageBox()
@@ -769,6 +768,3 @@ def gui():
 
 if __name__ == '__main__':
     cli()
-    #app = QApplication(sys.argv)
-    #ex = Master()
-    #sys.exit(app.exec_())
