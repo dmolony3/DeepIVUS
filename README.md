@@ -16,6 +16,16 @@
 **CURRENT VERSION DOES NOT SUPPORT PHENOTYPING**
 
 ## Installation
+
+#### Installion
+It is recommended to first setup a virtual environment using Anaconda or another environment manager
+```
+git clone https://github.com/dmolony3/DeepIVUS.git
+cd DeepIVUS
+python -m pip install .
+```
+
+#### Installation (detailed)
 Recommended way to install is as a virtual environment with Anaconda.
 On a windows computer follow the following instructions
 1. Download and install Anaconda from [here](https://www.anaconda.com/distribution/#download-section).
@@ -35,13 +45,28 @@ conda activate DeepIVUS
 ```
 7. Install all the dependency packages using the following commmand:
 ```
-pip install -r requirements.txt
+python -m pip install .
 ```
 8. Run the program using the following command:
 ```
-python DeepIVUS.py
+DeepIVUS gui
 ```
 9. After installation to use the program again you just need to repeats steps 4-8 but skip step 5 and step 7.
+
+
+#### Install binary
+A Windows 11 binary is available from here
+https://github.com/dmolony3/DeepIVUS/releases
+
+#### Model weights
+Model weights are accessible from here.
+
+
+## Launching the GUI
+DeepIVUS is launced directly from the command line. This will open the GUI and functionality is explained in more detail below 
+```
+DeepIVUS gui
+```
 
 ## Reading and Display IVUS pullbacks
 IVUS pullbacks in DICOM (.dcm) format can be loaded. Contours are stored in a .xml format and can be loaded for display.
@@ -79,6 +104,43 @@ A report in the form of a text file can be generated for each frame in the pullb
 <kbd>h</kbd> Hide contours  
 <kbd>j</kbd> Jiggle current frame  
 <kbd>q</kbd> Quit session  
+
+## CLI reference
+Alternatively to using the GUI DeepIVUS can be used directly from the command line. 
+
+deepivus --help
+```
+Usage: [OPTIONS] COMMAND [ARGS]...
+
+Options:
+  --version  Show the version and exit
+  --help     Show this message and exit
+
+Commands:
+  gui        Launches the GUI
+  segment    Segment IVUS images
+  gate       Identify end diastolic images
+```
+deepivus segment --help
+```
+Usage: DeepIVUS segment dicom_path [OPTIONS]
+  Segment dicom file from the given dicom_path
+  
+Options:
+  -g, --gated  Select whether only gated images should be segmented (much quicker)
+  -f, --fname  Output filename for the contours\
+  --help       Show this message
+```
+deepivus gate --help
+```
+Usage: DeepIVUS gate dicom_path [OPTIONS]
+  Write end diastolic frames from the given dicom_path
+  
+Options:
+  -w, --write  Write gated frames as jpgs
+  --help       Show this message
+```
+
 
 ## DeepIVUS Project Roadmap
 * Deep ensembles for model uncertainty
