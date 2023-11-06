@@ -9,6 +9,8 @@ class Point(QGraphicsEllipseItem):
 
     def __init__(self, pos, color):
         super(Point, self).__init__()
+        self.setZValue(3)
+
         if color =='y':
             self.defaultColor = QPen(Qt.yellow, 5)
         elif color =='r':
@@ -46,6 +48,7 @@ class Spline(QGraphicsPathItem):
     """Class that describes a spline"""
     def __init__(self, points, color):
         self.setKnotPoints(points)
+        self.setZValue(3)
 
         if color =='y':
             self.setPen(QPen(Qt.yellow, 2))

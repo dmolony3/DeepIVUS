@@ -199,16 +199,38 @@ class Display(QGraphicsView):
         self.pointIdx = None
 
         if len(self.images.shape) == 3:
-            self.image=QImage(self.images[self.frame, : ,:], self.imsize[1], self.imsize[2], QImage.Format_Grayscale8).scaled(self.display_size, self.display_size, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+            current_image = self.images[self.frame, : ,:]
+            self.image=QImage(current_image, self.imsize[1], self.imsize[2], QImage.Format_Grayscale8).scaled(self.display_size, self.display_size, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
         else:
             bytesPerLine = 3*self.imsize[2]
             current_image = self.images[self.frame, : ,:, :].astype(np.uint8, order='C', casting='unsafe')
             self.image=QImage(current_image.data, self.imsize[1], self.imsize[2], bytesPerLine, QImage.Format_RGB888).scaled(self.display_size, self.display_size, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) 
 
         image = QPixmap.fromImage(self.image)
-
         self.image = QGraphicsPixmapItem(image)
+        self.image.setZValue(1)
         self.scene.addItem(self.image)
+
+        # create transparent image (opacity set in 4th channel)
+        # calcium - white, hypoechogenic - red, hyperechogenic - greeen, other - gray
+        mask = (current_image > 200).astype(int)
+        mask = np.stack([mask, mask, mask, mask],2)
+        idx = np.nonzero(mask)
+        idx = idx[:2]
+
+        opacity = 50
+        
+        plaque = np.zeros((self.imsize[1], self.imsize[2], 4), dtype=np.uint8)
+        plaque[idx[0], idx[1]] = [255, 255, 255, opacity]
+        plaque[:, :, 3] = opacity
+        plaque[230:250, 230:250, :] = [255, 0, 0, opacity] #red
+        plaque[250:280, 250:280, :] = [0, 255, 0, opacity] #green
+
+        self.echo_image = QImage(plaque.data, self.imsize[1], self.imsize[2], 4*self.imsize[2], QImage.Format_RGBA8888).scaled(self.display_size, self.display_size, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) 
+        pixmap = QPixmap.fromImage(self.echo_image)
+        self.echoMap = QGraphicsPixmapItem(pixmap)
+        self.echoMap.setZValue(2)
+        self.scene.addItem(self.echoMap)
 
         if not self.hide:
             if self.lumen[0] or self.plaque[0] or self.stent[0]:
