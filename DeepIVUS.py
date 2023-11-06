@@ -1,7 +1,7 @@
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QSlider, QApplication, QHeaderView, QStyle, 
     QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, QLabel, QSizePolicy, QInputDialog, QErrorMessage, QMessageBox, QLineEdit, QFileDialog, QTableWidget, QTableWidgetItem)
 from PyQt5.QtCore import QObject, Qt, pyqtSignal, QSize, QTimer
-from PyQt5.QtGui import QIcon
+from PyQt5.QtGui import QIcon, QFont
 from IVUS_gating import IVUS_gating
 from IVUS_prediction import predict
 from write_xml import write_xml, get_contours, mask_image
@@ -109,6 +109,7 @@ class Master(QMainWindow):
         self.image = False
         self.contours = False
         self.segmentation = False
+        self.metrics = ([], [], [])
         self.lumen = ()
         self.plaque = ()
         self.initUI()
@@ -123,6 +124,7 @@ class Master(QMainWindow):
         vbox1 = QVBoxLayout()
         vbox2 = QVBoxLayout()
         vbox1hbox1 = QHBoxLayout()
+        vbox1hbox2 = QVBoxLayout()
 
         vbox1.setContentsMargins(0, 0, 100, 100)
         vbox2.setContentsMargins(100, 0, 0, 100)
@@ -137,7 +139,7 @@ class Master(QMainWindow):
         segmentButton = QPushButton('Segment')
         splineButton = QPushButton('Manual Contour')
         writeButton = QPushButton('Write Contours')
-        reportButton = QPushButton('Write Report')
+        reportButton = QPushButton('Write Report')        
 
         dicomButton.setToolTip("Load images in .dcm format")
         contoursButton.setToolTip("Load saved contours in .xml format")
@@ -147,6 +149,23 @@ class Master(QMainWindow):
         writeButton.setToolTip("Save contours in .xml file")
         reportButton.setToolTip("Write report containing, lumen, plaque and vessel areas and plaque burden")
 
+        self.info_lumen = QLabel()
+        self.info_vessel = QLabel()
+        self.info_plaque = QLabel()
+        self.info_burden = QLabel()
+        self.info_lumen.setText("Lumen area:     mm<sup>2</sup>")
+        self.info_vessel.setText("Vessel area:     mm<sup>2</sup>")
+        self.info_plaque.setText("Plaque area:     mm<sup>2</sup>")
+        self.info_burden.setText("Plaque burden:     %")
+        self.info_lumen.setAlignment(Qt.AlignLeft)
+        self.info_vessel.setAlignment(Qt.AlignLeft)
+        self.info_plaque.setAlignment(Qt.AlignLeft)
+        self.info_burden.setAlignment(Qt.AlignLeft)
+        self.info_lumen.setFont(QFont('Arial', 11))
+        self.info_vessel.setFont(QFont('Arial', 11))
+        self.info_plaque.setFont(QFont('Arial', 11))
+        self.info_burden.setFont(QFont('Arial', 11))
+        
         hideHeader1 = QHeaderView(Qt.Vertical)
         hideHeader1.hide()
         hideHeader2 = QHeaderView(Qt.Horizontal)
@@ -202,6 +221,7 @@ class Master(QMainWindow):
         self.text = QLabel()
         self.text.setAlignment(Qt.AlignCenter)
         self.text.setText("Frame {}".format(self.slider.value())) 
+        self.text.setFont(QFont('Arial', 11))
 
         vbox1.addWidget(self.wid)
         vbox1hbox1.addWidget(self.playButton)
@@ -219,7 +239,11 @@ class Master(QMainWindow):
         vbox2.addWidget(writeButton)
         vbox2.addWidget(reportButton)
         vbox2hbox1.addWidget(self.infoTable)
-
+        vbox1.addLayout(vbox1hbox2)
+        vbox1hbox2.addWidget(self.info_lumen)
+        vbox1hbox2.addWidget(self.info_vessel)
+        vbox1hbox2.addWidget(self.info_plaque)
+        vbox1hbox2.addWidget(self.info_burden)
 
         centralWidget = QWidget()
         centralWidget.setLayout(layout)
@@ -628,7 +652,15 @@ class Master(QMainWindow):
     def changeValue(self, value):
         self.c.updateBW.emit(value)
         self.wid.run()
-        self.text.setText("Frame {}".format(value))        
+        self.text.setText(f"Frame {value}")
+        lumen_area, plaque_area, plaque_burden = self.metrics
+        if len(lumen_area) > 0:
+            self.info_lumen.setText(f"Lumen area:  {lumen_area[value]} mm<sup>2</sup>")
+        if len(plaque_area) > 0:
+            self.info_plaque.setText(f"Plaque area: {plaque_area[value]} mm<sup>2</sup>")
+        if len(lumen_area) > 0 and len(plaque_area) > 0:
+            self.info_vessel.setText(f"Vessel area: {plaque_area[value] + lumen_area[value]} mm<sup>2</sup>")
+            self.info_burden.setText(f"Plaque burden: {plaque_burden[value]} %")        
 
     def changeState(self, value):
         self.c.updateBool.emit(value)
