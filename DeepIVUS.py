@@ -1,7 +1,7 @@
-from PyQt5.QtWidgets import (QMainWindow, QWidget, QSlider, QApplication, QHeaderView, QStyle, 
-    QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, QLabel, QSizePolicy, QInputDialog, QErrorMessage, QMessageBox, QLineEdit, QFileDialog, QTableWidget, QTableWidgetItem)
+from PyQt5.QtWidgets import (QMainWindow, QWidget, QSlider, QApplication, QHeaderView, QStyle, QFrame, QGraphicsView, QGraphicsScene, QGraphicsLineItem, QGraphicsPixmapItem,
+    QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox,  QLabel, QSizePolicy, QInputDialog, QErrorMessage, QMessageBox, QLineEdit, QFileDialog, QTableWidget, QTableWidgetItem)
 from PyQt5.QtCore import QObject, Qt, pyqtSignal, QSize, QTimer
-from PyQt5.QtGui import QIcon, QFont
+from PyQt5.QtGui import QIcon, QFont, QPixmap, QImage, QPen, QColor
 from IVUS_gating import IVUS_gating
 from IVUS_prediction import predict
 from write_xml import write_xml, get_contours, mask_image
@@ -116,7 +116,6 @@ class Master(QMainWindow):
 
     def initUI(self):
         self.setGeometry(100, 100, 1200, 1200)
-        self.display_size = 800
         self.addToolBar("MY Window")
         self.showMaximized()
 
@@ -127,9 +126,7 @@ class Master(QMainWindow):
         vbox1hbox2 = QVBoxLayout()
 
         vbox1.setContentsMargins(0, 0, 100, 100)
-        vbox2.setContentsMargins(100, 0, 0, 100)
-        vbox2hbox1 = QHBoxLayout()
-        vbox2.addLayout(vbox2hbox1)
+        vbox2.setContentsMargins(100, 0, 0, 0)
         layout.addLayout(vbox1)
         layout.addLayout(vbox2)
 
@@ -170,6 +167,7 @@ class Master(QMainWindow):
         hideHeader1.hide()
         hideHeader2 = QHeaderView(Qt.Horizontal)
         hideHeader2.hide()
+        vbox2hbox1 = QHBoxLayout()
         self.infoTable = QTableWidget()
         self.infoTable.setRowCount(8)
         self.infoTable.setColumnCount(2)
@@ -183,7 +181,20 @@ class Master(QMainWindow):
         self.infoTable.setItem(7, 0, QTableWidgetItem('Model'))
         self.infoTable.setVerticalHeader(hideHeader1)
         self.infoTable.setHorizontalHeader(hideHeader2)
+        self.infoTable.resizeRowsToContents()
+        self.infoTable.resizeColumnsToContents()
+        #self.infoTable.verticalHeader().setStretchLastSection(True)
+        #self.infoTable.setSizePolicy(QSizePolicy.Policy.Minimum,QSizePolicy.Policy.Minimum)
         self.infoTable.horizontalHeader().setStretchLastSection(True)
+        iHeight = 0
+        for i in range(self.infoTable.rowCount()):
+            iHeight += self.infoTable.verticalHeader().sectionSize(i)
+
+        self.infoTable.setMaximumHeight(iHeight)
+        self.infoTable.verticalScrollBar().setDisabled(True)
+        self.infoTable.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        vbox2.addLayout(vbox2hbox1)
+
 
         dicomButton.clicked.connect(self.readDICOM)
         contoursButton.clicked.connect(self.readContours)
@@ -244,7 +255,26 @@ class Master(QMainWindow):
         vbox1hbox2.addWidget(self.info_vessel)
         vbox1hbox2.addWidget(self.info_plaque)
         vbox1hbox2.addWidget(self.info_burden)
+        
+        # layouts dont provide fixed size functionality so make a widget with a layout instead
+        temp = QWidget()
+        temp.setFixedHeight(400)
+        lay = QHBoxLayout(temp)
+        self.lview = QGraphicsView()
+        self.lview.setFrameStyle(QFrame.NoFrame)
+        self.scenelong = QGraphicsScene(self.lview)
+        image = QGraphicsPixmapItem(QPixmap(800, 400))
+        imagetemp=QImage(np.zeros((1600,250)), 250, 1000,  QImage.Format_Grayscale8).scaled(1600, 200, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) 
+        self.scenelong.addItem(image)
+        self.lview.setScene(self.scenelong)
+        self.lview.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.lview.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        lay.addWidget(self.lview)
+        vbox2.addWidget(temp)
+        vbox2.addLayout(lay)
+        #vbox2.addWidget(self.lview)
 
+        
         centralWidget = QWidget()
         centralWidget.setLayout(layout)
         self.setWindowIcon(QIcon('Media/thumbnail.png'))
@@ -401,8 +431,28 @@ class Master(QMainWindow):
                 self.stent = ([[] for idx in range(self.numberOfFrames)], [[] for idx in range(self.numberOfFrames)])
 
             self.wid.setData(self.lumen, self.plaque, self.stent, self.images)
-            self.slider.setValue(self.numberOfFrames-1)
+            
 
+            lview_array = self.images[:, 250, :].astype(np.uint8, order='C', casting='unsafe')
+            lview_array = np.transpose(lview_array, (1, 0)).copy()            
+
+            lview_length = 1600
+            lview_height = 400
+            print("rect",self.lview.sceneRect().height(), self.lview.sceneRect().width())
+            # lview
+            image=QImage(lview_array.data, lview_array.shape[1], lview_array.shape[0],  QImage.Format_Grayscale8).scaled(lview_length, lview_height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) 
+            pixmap = QPixmap.fromImage(image)
+            lview_image = QGraphicsPixmapItem(pixmap)
+            self.scenelong.addItem(lview_image)
+            self.marker = QGraphicsLineItem()
+            #self.marker.setZValue(1)
+
+            self.marker.setLine(lview_length, 0, lview_length, lview_height)
+            self.marker.setPen(QPen(QColor(173, 216, 230), 2))
+            self.scenelong.addItem(self.marker)
+
+            self.slider.setValue(self.numberOfFrames-1)
+            
     def readContours(self):
         """Reads contours.
 
@@ -466,7 +516,9 @@ class Master(QMainWindow):
 
         patientName = self.infoTable.item(0, 1).text()
         saveName = patientName if fname is None else fname
+        saveName = 'temp'
         self.lumen, self.plaque = self.wid.getData()
+        print(patientName, saveName)
 
         # reformat data for compatibility with write_xml function
         x, y = [], []
@@ -662,6 +714,12 @@ class Master(QMainWindow):
             self.info_vessel.setText(f"Vessel area: {plaque_area[value] + lumen_area[value]} mm<sup>2</sup>")
             self.info_burden.setText(f"Plaque burden: {plaque_burden[value]} %")        
 
+        lview_length = self.lview.sceneRect().width()
+        lview_height = self.lview.sceneRect().height()
+        xpos = round(lview_length*value/self.numberOfFrames)
+        self.marker.setLine(xpos, 0, xpos, lview_height)
+        #self.scenelong.addItem(self.marker)
+            
     def changeState(self, value):
         self.c.updateBool.emit(value)
         self.wid.run()
