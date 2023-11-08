@@ -1,10 +1,167 @@
-from geometry import Point, Spline
-from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPixmap, QImage
+from geometry import Point, Spline, Line, Marker
+from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsPathItem, QGraphicsLineItem, QHBoxLayout, QWidget, QFrame
+from PyQt5.QtCore import Qt, QPointF, pyqtSignal
+from PyQt5.QtGui import QPixmap, QImage, QPen, QColor, QPainterPath
 import math
 import numpy as np
 
+class LView(QGraphicsView):
+    """Displays images and contours in the longitudinal view.
+
+    Displays images and contours as well as allowing user to 
+    interact and manipulate contours. 
+
+    Attributes:
+        scene: QGraphicsScene, all items
+        frame: int, current frame
+        lumen: tuple, lumen contours
+        plaque: tuple: plaque contours
+        hide: bool, indicates whether contours should be displayed or hidden
+        activePoint: Point, active point in spline
+        innerPoint: list, spline points for inner (lumen) contours
+        outerPoint: list, spline points for outer (plaque) contours
+    """
+    markerChangedSignal = pyqtSignal(float)
+    markerChangedKeySignal = pyqtSignal(object)
+    def __init__(self, displayTopSize):
+        super(LView, self).__init__()
+        print("View Height: {}, View Width: {}".format(self.width(), self.height()))
+
+        self.lview_length = 1600
+        self.lview_height = 400
+        self.displayTopSize = displayTopSize
+        
+        self.setFrameStyle(QFrame.NoFrame)
+
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        
+        self.scene = QGraphicsScene(self)
+        self.scene.setBackgroundBrush(Qt.black)
+
+        self.setScene(self.scene)
+        
+    def createScene(self, lview_array):
+        # create marker for display current cross section in lview mode
+        self.scene.clear()
+        
+        image = QImage(lview_array.data, lview_array.shape[1], lview_array.shape[0],  QImage.Format_Grayscale8).scaled(self.lview_length, self.lview_height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) 
+        pixmap = QPixmap.fromImage(image)
+        lview_image = QGraphicsPixmapItem(pixmap)
+        self.pixmap = self.scene.addPixmap(pixmap) 
+
+        self.marker = Marker(self.lview_length, self.lview_height, self.lview_length)
+        self.scene.addItem(self.marker)
+        
+    def keyPressEvent(self, event):
+        """Key events."""
+        self.markerChangedKeySignal.emit(event)
+
+    def mousePressEvent(self, event):
+        super(LView, self).mousePressEvent(event)
+
+        pos = self.mapToScene(event.pos())
+        
+        dist = pos.x() - self.marker.line().x1()
+
+        #dist = np.sqrt((pos.x() - self.marker.line().x1())**2 + (pos.y() - self.marker.line().y1())**2)
+        if abs(dist) < 15:
+            self.enable_drag = True
+        else:
+            self.enable_drag = False
+  
+    def mouseMoveEvent(self, event):
+        if self.enable_drag:
+            pos = self.marker.mapFromScene(self.mapToScene(event.pos()))
+            
+            newPos = self.marker.update(pos.x())
+            self.markerChangedSignal.emit(newPos/self.lview_length)
+ 
+    def createLViewContours(self, lview_lumenY, lview_plaqueY, lview_lumen1, lview_lumen2, lview_plaque1, lview_plaque2):
+        """Updates the lview"""
+        self.lview_lumenY = lview_lumenY
+        self.lview_plaqueY = lview_plaqueY
+        
+        self.lview_lumen1 = lview_lumen1
+        self.lview_lumen2 = lview_lumen2
+        self.lview_plaque1 = lview_plaque1
+        self.lview_plaque2 = lview_plaque2
+
+        self.pathLumenItem1 = QGraphicsPathItem()
+        self.pathLumenItem1.setPen(QPen(Qt.red, 2))
+        self.pathLumenItem2 = QGraphicsPathItem()
+        self.pathLumenItem2.setPen(QPen(Qt.red, 2))
+
+        l1 = QPointF(self.lview_lumenY[0], self.lview_lumen1[0])
+        l2 = QPointF(self.lview_lumenY[0], self.lview_lumen2[0])
+        pathLumen1 = QPainterPath(l1)
+        pathLumen2 = QPainterPath(l2)
+        for i in range(0, len(self.lview_lumenY)):
+            #path1.lineTo(self.lviewX1[i], self.lviewY[i])
+            pathLumen1.lineTo(self.lview_lumenY[i], self.lview_lumen1[i])
+            pathLumen2.lineTo(self.lview_lumenY[i], self.lview_lumen2[i])
+        self.pathLumenItem1.setPath(pathLumen1)
+        self.pathLumenItem2.setPath(pathLumen2)
+        self.scene.addItem(self.pathLumenItem1)
+        self.scene.addItem(self.pathLumenItem2)
+
+        # create path for vessel
+        self.pathVesselItem1 = QGraphicsPathItem()
+        self.pathVesselItem1.setPen(QPen(Qt.yellow, 2))
+        self.pathVesselItem2 = QGraphicsPathItem()
+        self.pathVesselItem2.setPen(QPen(Qt.yellow, 2))
+
+        v1 = QPointF(self.lview_plaqueY[0], self.lview_plaque1[0])
+        v2 = QPointF(self.lview_plaqueY[0], self.lview_plaque2[0])
+        pathVessel1 = QPainterPath(v1)
+        pathVessel2 = QPainterPath(v2)
+        for i in range(0, len(self.lview_plaqueY)):
+            #path1.lineTo(self.lviewX1[i], self.lviewY[i])
+            pathVessel1.lineTo(self.lview_plaqueY[i], self.lview_plaque1[i])
+            pathVessel2.lineTo(self.lview_plaqueY[i], self.lview_plaque2[i])
+        self.pathVesselItem1.setPath(pathVessel1)
+        self.pathVesselItem2.setPath(pathVessel2)
+        self.scene.addItem(self.pathVesselItem1)
+        self.scene.addItem(self.pathVesselItem2)               
+        
+    def updateImage(self, lview_array):
+        image = QImage(lview_array.data, lview_array.shape[1], lview_array.shape[0],  QImage.Format_Grayscale8).scaled(self.lview_length, self.lview_height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) 
+        pixmap = QPixmap.fromImage(image)
+        self.pixmap.setPixmap(pixmap)
+        
+    def updateMarker(self, pos):
+        self.marker.setLine(pos, 0, pos, self.lview_height)
+        
+    def updateLViewContours(self, lview_lumenY, lview_plaqueY, lview_lumen1, lview_lumen2, lview_plaque1, lview_plaque2):
+
+        self.lview_lumenY = lview_lumenY
+        self.lview_plaqueY = lview_plaqueY
+
+        self.lview_lumen1 = lview_lumen1
+        self.lview_lumen2 = lview_lumen2
+        self.lview_plaque1 = lview_plaque1
+        self.lview_plaque2 = lview_plaque2
+
+        #pathLumen1 = self.scene.pathLumenItem1.path()
+        #pathLumen2 = self.pathLumenItem2.path()
+        pathLumen1 = self.pathLumenItem1.path()
+        pathLumen2 = self.pathLumenItem2.path()
+        
+        pathVessel1 = self.pathVesselItem1.path()
+        pathVessel2 = self.pathVesselItem2.path()
+
+        for i in range(len(self.lview_lumen1)):
+            pathLumen1.setElementPositionAt(i, self.lview_lumenY[i], self.lview_lumen1[i])
+            pathLumen2.setElementPositionAt(i, self.lview_lumenY[i], self.lview_lumen2[i])
+        self.pathLumenItem1.setPath(pathLumen1)        
+        self.pathLumenItem2.setPath(pathLumen2)  
+
+        for i in range(len(self.lview_plaque1)):
+            pathVessel1.setElementPositionAt(i, self.lview_plaqueY[i], self.lview_plaque1[i])
+            pathVessel2.setElementPositionAt(i, self.lview_plaqueY[i], self.lview_plaque2[i])
+        self.pathVesselItem1.setPath(pathVessel1)        
+        self.pathVesselItem2.setPath(pathVessel2)  
+ 
 class Display(QGraphicsView):
     """Displays images and contours.
 
@@ -21,7 +178,9 @@ class Display(QGraphicsView):
         innerPoint: list, spline points for inner (lumen) contours
         outerPoint: list, spline points for outer (plaque) contours
     """
-
+    lviewChangedSignal = pyqtSignal(int, int, int, int)
+    frameChangedKeySignal = pyqtSignal(object)
+    contourUpdatedSignal = pyqtSignal(bool)
     def __init__(self):
         super(Display, self).__init__()
         print("View Height: {}, View Width: {}".format(self.width(), self.height()))
@@ -42,12 +201,18 @@ class Display(QGraphicsView):
         self.newSpline = None
         self.enable_drag = True
         self.activePoint = None
+        self.activeContour = 0
         self.innerPoint = []
         self.outerPoint = []
         self.display_size = 800
+        self.allow_update = False
 
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        self.crossCoords = [0, 400, 800, 400] 
+        self.cross = Line(self.crossCoords, self.display_size)
+        self.scene.addItem(self.cross)
 
         self.image = QGraphicsPixmapItem(QPixmap(self.display_size, self.display_size))
         self.scene.addItem(self.image)
@@ -70,6 +235,10 @@ class Display(QGraphicsView):
             self.activePoint = None
             print("No active point")
 
+    def keyPressEvent(self, event):
+        """Key events."""
+        self.frameChangedKeySignal.emit(event)
+
     def mousePressEvent(self, event):
         super(Display, self).mousePressEvent(event)
 
@@ -90,9 +259,24 @@ class Display(QGraphicsView):
                     self.pointIdx = [i for i, checkItem in enumerate(self.outerPoint) if item == checkItem][0]
                     self.activeContour = 2
                     self.findItem(item, event.pos())
+                elif item == self.cross:
+                    clickedPoint = self.mapToScene(event.pos())
+                    dist = [np.sqrt((clickedPoint.x() - self.crossCoords[0])**2 +
+                            (clickedPoint.y() - self.crossCoords[1])**2),
+                            np.sqrt((clickedPoint.x() - self.crossCoords[2])**2 +
+                            (clickedPoint.y() - self.crossCoords[3])**2)]
 
+                    if min(dist) < 10:
+                        self.allow_update = True
+                    else:
+                        self.allow_update = False
+
+                    self.activeContour = 3
+                    self.activePoint = item
+                    
     def mouseReleaseEvent(self, event):
-        if self.pointIdx is not None:
+        print(f"Active item is {self.activeContour}")
+        if self.pointIdx is not None and self.activeContour != 3:
             contour_scaling_factor = self.display_size/self.imsize[1]
             item = self.activePoint
             item.resetColor()
@@ -103,7 +287,12 @@ class Display(QGraphicsView):
             elif self.activeContour == 2:
                 self.plaque[0][self.frame] = [val/contour_scaling_factor for val in self.outerSpline.knotPoints[0]]  
                 self.plaque[1][self.frame] = [val/contour_scaling_factor for val in self.outerSpline.knotPoints[1]]
-	
+            self.pointIdx = None
+            self.contourUpdatedSignal.emit(True)
+        if self.activeContour == 3:
+            self.lviewChangedSignal.emit(self.crossCoords[0], self.crossCoords[1], self.crossCoords[2], self.crossCoords[3])
+            self.activeContour = 0
+            
     def mouseMoveEvent(self, event):
         #self.setMouseTracking(True) # if this is disabled mouse tracking only occurs when a button is pressed
         if self.pointIdx is not None:
@@ -116,6 +305,14 @@ class Display(QGraphicsView):
             elif self.activeContour == 2:
                 self.outerSpline.update(newPos, self.pointIdx)
             #self.disable_drag = False
+        elif  self.activeContour == 3:
+            if self.allow_update:
+                item = self.activePoint
+                pos = item.mapFromScene(self.mapToScene(event.pos()))
+                newPos = item.update(pos)
+                self.crossCoords = newPos
+                #self.cross.setLine(0, 400, 800, 400)                 
+                self.lviewChangedSignal.emit(self.crossCoords[0], self.crossCoords[1], self.crossCoords[2], self.crossCoords[3])
 
 
     def setData(self, lumen, plaque, stent, images):
@@ -158,17 +355,19 @@ class Display(QGraphicsView):
         for frame in range(self.numberOfFrames):
             if self.lumen[0][frame]:
                 lumen = Spline([self.lumen[0][frame], self.lumen[1][frame]], 'r')
-                plaque = Spline([self.plaque[0][frame], self.plaque[1][frame]], 'y')
                 lumenContour[0].append(list(lumen.points[0]))
                 lumenContour[1].append(list(lumen.points[1]))
-                plaqueContour[0].append(list(plaque.points[0]))
-                plaqueContour[1].append(list(plaque.points[1]))
             else:
                 lumenContour[0].append([])
                 lumenContour[1].append([])
+            if self.plaque[0][frame]:
+                plaque = Spline([self.plaque[0][frame], self.plaque[1][frame]], 'y')
+                plaqueContour[0].append(list(plaque.points[0]))
+                plaqueContour[1].append(list(plaque.points[1]))
+            else:
                 plaqueContour[0].append([])
                 plaqueContour[1].append([]) 
-               
+                
         return lumenContour, plaqueContour
 
 
@@ -210,6 +409,9 @@ class Display(QGraphicsView):
         self.image = QGraphicsPixmapItem(image)
         self.image.setZValue(1)
         self.scene.addItem(self.image)
+        
+        self.cross = Line(self.crossCoords, self.display_size)
+        self.scene.addItem(self.cross)
 
         # create transparent image (opacity set in 4th channel)
         # calcium - white, hypoechogenic - red, hyperechogenic - greeen, other - gray
@@ -230,7 +432,7 @@ class Display(QGraphicsView):
         pixmap = QPixmap.fromImage(self.echo_image)
         self.echoMap = QGraphicsPixmapItem(pixmap)
         self.echoMap.setZValue(2)
-        self.scene.addItem(self.echoMap)
+        #self.scene.addItem(self.echoMap)
 
         if not self.hide:
             if self.lumen[0] or self.plaque[0] or self.stent[0]:
@@ -293,7 +495,9 @@ class Display(QGraphicsView):
                     self.lumen[0][self.frame] = [val/scaling_factor for val in downsampled[0][0]]
                     self.lumen[1][self.frame] = [val/scaling_factor for val in downsampled[1][0]]
 
+                # update image, contours and measurements
                 self.displayImage()
+                self.contourUpdatedSignal.emit(True)
 
     def run(self):
         self.displayImage()
