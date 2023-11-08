@@ -1,8 +1,68 @@
-from PyQt5.QtWidgets import QGraphicsEllipseItem, QGraphicsPathItem
+from PyQt5.QtWidgets import QGraphicsEllipseItem, QGraphicsPathItem, QGraphicsLineItem
 from PyQt5.QtCore import Qt, QPointF
-from PyQt5.QtGui import QPen, QPainterPath
+from PyQt5.QtGui import QPen, QPainterPath, QColor
 import numpy as np
 from scipy.interpolate import splprep, splev
+
+class Marker(QGraphicsLineItem):
+    """Class that describes a line in the longitudinal view"""
+    def __init__(self, pos, display_height, display_length):
+        super(Marker, self).__init__()
+        self.setZValue(3)
+        self.display_height = display_height
+        self.display_length = display_length
+
+        self.defaultColor = QPen(QColor(173, 216, 230), 5)
+
+        self.setLine(pos, 0, pos, self.display_height) 
+        self.setPen(self.defaultColor)
+        
+    def update(self, pos):
+        """Updates the Point position"""
+        
+        # point must be constrained to bottom and top of scene 
+        if pos < 0:
+            pos = 0
+        elif pos > self.display_length:
+            pos = self.display_length
+        self.setLine(pos, 0, pos, self.display_height)
+        return pos
+        
+
+class Line(QGraphicsLineItem):
+    """Class that describes a line in the cross-section view"""
+    def __init__(self, pos, display_size):
+        super(Line, self).__init__()
+        self.setZValue(3)
+        self.display_size = display_size
+        image_radius = display_size//2
+
+        self.defaultColor = QPen(QColor(173, 216, 230), 5)
+        self.setLine(pos[0], pos[1], pos[2], pos[3]) 
+        self.setPen(self.defaultColor)
+        theta = np.linspace(0, 2*np.pi, 180)
+        self.points = [[image_radius*np.cos(val) + image_radius, image_radius*np.sin(val) + image_radius] for val in theta]
+
+    def update(self, pos):
+        """Updates the Point position"""
+        
+        dist = [np.sqrt((pt[0] - pos.x())**2 + (pt[1] - pos.y())**2) for pt in self.points]
+        idx = [i for i, val in enumerate(dist) if val == min(dist)]
+        # point must be constrained to circular path
+        new_x = self.points[idx[0]][0]
+        new_y = self.points[idx[0]][1]
+        if new_x > self.display_size//2:
+            new_x1 = self.display_size - new_x
+        else:
+            new_x1 = self.display_size - new_x
+        
+        if new_y > self.display_size//2:
+            new_y1 = self.display_size - new_y
+        else:
+            new_y1 = self.display_size - new_y
+            
+        self.setLine(new_x1, new_y1, new_x, new_y)
+        return [new_x1, new_y1, new_x, new_y]
 
 class Point(QGraphicsEllipseItem):
     """Class that describes a spline point"""
