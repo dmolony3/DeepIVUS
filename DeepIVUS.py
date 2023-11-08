@@ -1,18 +1,79 @@
-from PyQt5.QtWidgets import (QMainWindow, QWidget, QSlider, QApplication, QHeaderView, QStyle, QFrame, QGraphicsView, QGraphicsScene, QGraphicsLineItem, QGraphicsPixmapItem,
+from PyQt5.QtWidgets import (QMainWindow, QWidget, QSlider, QApplication, QHeaderView, QStyle, QFrame, QGraphicsView, QGraphicsScene, QGraphicsLineItem, QGraphicsPixmapItem, QGraphicsEllipseItem, QGraphicsPathItem,
     QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox,  QLabel, QSizePolicy, QInputDialog, QErrorMessage, QMessageBox, QLineEdit, QFileDialog, QTableWidget, QTableWidgetItem)
-from PyQt5.QtCore import QObject, Qt, pyqtSignal, QSize, QTimer
-from PyQt5.QtGui import QIcon, QFont, QPixmap, QImage, QPen, QColor
+from PyQt5.QtCore import QObject, Qt, pyqtSignal, QSize, QTimer, QPointF
+from PyQt5.QtGui import QIcon, QFont, QPixmap, QImage, QPen, QColor, QPainterPath
 from IVUS_gating import IVUS_gating
 from IVUS_prediction import predict
 from write_xml import write_xml, get_contours, mask_image
-from display import Display
+from display import Display, LView
 from PIL import Image
 import os, sys, time, read_xml
 import pydicom as dcm
 import numpy as np
 import subprocess
 import click
+import scipy
 
+class LViewData():
+    """Creates an lview and returns the image"""
+    def __init__(self, image_dim):
+
+        self.current_angle = 0
+        spacing = np.linspace(0, image_dim[1], image_dim[2])
+        x, y = np.meshgrid(spacing, spacing)
+        half_dim = image_dim[1]//2
+        x = x - half_dim
+        y = y - half_dim
+        self.rho = np.sqrt(x**2 + y**2)
+        phi = np.arctan2(y, x)
+        phi += np.pi
+        phi = phi*180/np.pi
+        self.phi1 = phi[:, :half_dim]
+        self.phi2 = phi[:, half_dim:]   
+        self.phi3 = phi[:half_dim, :]
+        self.phi4 = phi[half_dim:, :]
+        self.phi = phi
+        self.idx1_1 = np.linspace(0, half_dim - 1, half_dim, dtype=np.uint16)
+        self.idx2_1 = np.linspace(half_dim, image_dim[1] - 1, half_dim, dtype=np.uint16)
+
+    def update(self, images, current_angle):  
+        self.current_angle = current_angle
+        #if self.current_angle > 90 and self.current_angle < 270:
+        #    self.current_angle = 360 - self.current_angle
+        #print("New angle:", self.current_angle, (180 + self.current_angle)%360)
+        if 45 < self.current_angle <= 135:
+        #if self.current_angle <= 45 or self.current_angle > 315:
+            idx1_2 = np.abs((self.phi3 - self.current_angle)).argmin(axis=1)
+            idx2_2 = np.abs((self.phi4 - (180 + self.current_angle)%360)).argmin(axis=1)
+            idx1 = np.concatenate([self.idx1_1, self.idx2_1])
+            idx2 = np.concatenate([idx1_2, idx2_2])    
+            #lview_array = images[:, idx1, idx2].astype(np.uint8, order='C', casting='unsafe')
+        elif 225 < self.current_angle <= 315:
+            idx1_2 = np.abs((self.phi3 - (180 + self.current_angle)%360)).argmin(axis=1)
+            idx2_2 = np.abs((self.phi4 - self.current_angle)).argmin(axis=1)
+            idx1 = np.concatenate([self.idx1_1, self.idx2_1])
+            idx2 = np.concatenate([idx1_2, idx2_2])    
+            #lview_array = images[:, idx1, idx2].astype(np.uint8, order='C', casting='unsafe')        
+        elif 135 < self.current_angle <= 225:
+            idx1_2 = np.abs((self.phi1 - (180 + self.current_angle)%360)).argmin(axis=0)
+            idx2_2 = np.abs((self.phi2 - self.current_angle)).argmin(axis=0)
+            idx2 = np.concatenate([self.idx1_1, self.idx2_1])
+            idx1 = np.concatenate([idx1_2, idx2_2])        
+            #lview_array = images[:, idx2, idx1].astype(np.uint8, order='C', casting='unsafe')
+        else:
+            idx1_2 = np.abs((self.phi1 - self.current_angle)).argmin(axis=0)
+            idx2_2 = np.abs((self.phi2 - (180 + self.current_angle)%360)).argmin(axis=0)
+            idx2 = np.concatenate([self.idx1_1, self.idx2_1])
+            idx1 = np.concatenate([idx1_2, idx2_2])
+        
+        
+        lview_array = images[:, idx1, idx2].astype(np.uint8, order='C', casting='unsafe')
+        lview_array = np.transpose(lview_array, (1, 0)).copy()
+        if 135 <= self.current_angle <= 315:
+            lview_array = np.flipud(lview_array).copy()
+        # after grabbing slider it crashes   
+        return lview_array
+        
 class Communicate(QObject):
     updateBW = pyqtSignal(int)
     updateBool = pyqtSignal(bool)
@@ -109,6 +170,9 @@ class Master(QMainWindow):
         self.image = False
         self.contours = False
         self.segmentation = False
+        self.displayTopSize = 800
+        self.current_angle = 0
+        self.gatedFrames = []
         self.metrics = ([], [], [])
         self.lumen = ()
         self.plaque = ()
@@ -130,21 +194,27 @@ class Master(QMainWindow):
         layout.addLayout(vbox1)
         layout.addLayout(vbox2)
 
-        dicomButton = QPushButton('Read DICOM')
-        contoursButton = QPushButton('Read Contours')
-        gatingButton = QPushButton('Extract Diastolic Frames')
-        segmentButton = QPushButton('Segment')
-        splineButton = QPushButton('Manual Contour')
-        writeButton = QPushButton('Write Contours')
-        reportButton = QPushButton('Write Report')        
+        self.dicomButton = QPushButton('Read DICOM')
+        self.contoursButton = QPushButton('Read Contours')
+        self.gatingButton = QPushButton('Extract Diastolic Frames')
+        self.segmentButton = QPushButton('Segment')
+        self.splineButton = QPushButton('Manual Contour')
+        self.writeButton = QPushButton('Write Contours')
+        self.reportButton = QPushButton('Write Report') 
+        self.contoursButton.setEnabled(False)        
+        self.gatingButton.setEnabled(False)        
+        self.segmentButton.setEnabled(False)        
+        self.splineButton.setEnabled(False)        
+        self.writeButton.setEnabled(False)        
+        self.reportButton.setEnabled(False)        
 
-        dicomButton.setToolTip("Load images in .dcm format")
-        contoursButton.setToolTip("Load saved contours in .xml format")
-        gatingButton.setToolTip("Extract end diastolic images from pullback")
-        segmentButton.setToolTip("Run deep learning based segmentation of lumen and plaque")
-        splineButton.setToolTip("Manually draw new contour for lumen, plaque or stent")
-        writeButton.setToolTip("Save contours in .xml file")
-        reportButton.setToolTip("Write report containing, lumen, plaque and vessel areas and plaque burden")
+        self.dicomButton.setToolTip("Load images in .dcm format")
+        self.contoursButton.setToolTip("Load saved contours in .xml format")
+        self.gatingButton.setToolTip("Extract end diastolic images from pullback")
+        self.segmentButton.setToolTip("Run deep learning based segmentation of lumen and plaque")
+        self.splineButton.setToolTip("Manually draw new contour for lumen, plaque or stent")
+        self.writeButton.setToolTip("Save contours in .xml file")
+        self.reportButton.setToolTip("Write report containing, lumen, plaque and vessel areas and plaque burden")
 
         self.info_lumen = QLabel()
         self.info_vessel = QLabel()
@@ -196,13 +266,13 @@ class Master(QMainWindow):
         vbox2.addLayout(vbox2hbox1)
 
 
-        dicomButton.clicked.connect(self.readDICOM)
-        contoursButton.clicked.connect(self.readContours)
-        segmentButton.clicked.connect(self.segment)
-        splineButton.clicked.connect(self.newSpline)
-        gatingButton.clicked.connect(self.gate)
-        writeButton.clicked.connect(self.writeContours)
-        reportButton.clicked.connect(self.report)
+        self.dicomButton.clicked.connect(self.readDICOM)
+        self.contoursButton.clicked.connect(self.readContours)
+        self.segmentButton.clicked.connect(self.segment)
+        self.splineButton.clicked.connect(self.newSpline)
+        self.gatingButton.clicked.connect(self.gate)
+        self.reportButton.clicked.connect(self.report)
+        self.writeButton.clicked.connect(lambda: self.writeContours())
 
         self.playButton = QPushButton()
         pixmapi1 = getattr(QStyle, 'SP_MediaPlay')
@@ -223,12 +293,15 @@ class Master(QMainWindow):
         self.useGatedBox.stateChanged[int].connect(self.useGated)
         self.useGatedBox.setToolTip("When this is checked only gated frames will be segmented and only gated frames statistics will be written to the report")
         self.useGatedBox.setToolTipDuration(200)
-   
+           
         self.wid = Display()
         self.c = Communicate()        
         self.c.updateBW[int].connect(self.wid.setFrame)
         self.c.updateBool[bool].connect(self.wid.setDisplay)
-
+        self.wid.lviewChangedSignal.connect(self.updateLview)
+        self.wid.contourUpdatedSignal.connect(self.changeContour)
+        self.wid.frameChangedKeySignal.connect(self.keyPressDisplay)
+        
         self.text = QLabel()
         self.text.setAlignment(Qt.AlignCenter)
         self.text.setText("Frame {}".format(self.slider.value())) 
@@ -242,13 +315,13 @@ class Master(QMainWindow):
 
         vbox2.addWidget(self.hideBox)
         vbox2.addWidget(self.useGatedBox)
-        vbox2.addWidget(dicomButton)
-        vbox2.addWidget(contoursButton)
-        vbox2.addWidget(gatingButton)
-        vbox2.addWidget(segmentButton)
-        vbox2.addWidget(splineButton)
-        vbox2.addWidget(writeButton)
-        vbox2.addWidget(reportButton)
+        vbox2.addWidget(self.dicomButton)
+        vbox2.addWidget(self.contoursButton)
+        vbox2.addWidget(self.gatingButton)
+        vbox2.addWidget(self.segmentButton)
+        vbox2.addWidget(self.splineButton)
+        vbox2.addWidget(self.writeButton)
+        vbox2.addWidget(self.reportButton)
         vbox2hbox1.addWidget(self.infoTable)
         vbox1.addLayout(vbox1hbox2)
         vbox1hbox2.addWidget(self.info_lumen)
@@ -257,23 +330,19 @@ class Master(QMainWindow):
         vbox1hbox2.addWidget(self.info_burden)
         
         # layouts dont provide fixed size functionality so make a widget with a layout instead
-        temp = QWidget()
-        temp.setFixedHeight(400)
-        lay = QHBoxLayout(temp)
-        self.lview = QGraphicsView()
-        self.lview.setFrameStyle(QFrame.NoFrame)
-        self.scenelong = QGraphicsScene(self.lview)
-        image = QGraphicsPixmapItem(QPixmap(800, 400))
-        imagetemp=QImage(np.zeros((1600,250)), 250, 1000,  QImage.Format_Grayscale8).scaled(1600, 200, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) 
-        self.scenelong.addItem(image)
-        self.lview.setScene(self.scenelong)
-        self.lview.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.lview.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        lay.addWidget(self.lview)
-        vbox2.addWidget(temp)
-        vbox2.addLayout(lay)
-        #vbox2.addWidget(self.lview)
+        self.lview_length = 1600
+        self.lview_height = 400
+        displayBottom = QWidget()
+        displayBottom.setFixedHeight(self.lview_height)
+        lay = QHBoxLayout(displayBottom)
+        
+        self.lview = LView(self.displayTopSize)
+        self.lview.markerChangedSignal.connect(self.changeValue2)
+        self.lview.markerChangedKeySignal.connect(self.keyPressDisplay)
 
+        lay.addWidget(self.lview)
+        vbox2.addWidget(displayBottom)
+        vbox2.addLayout(lay)
         
         centralWidget = QWidget()
         centralWidget.setLayout(layout)
@@ -288,7 +357,7 @@ class Master(QMainWindow):
         timer = QTimer(self)
         timer.timeout.connect(self.autoSave) 
         timer.start(180000) # autosaves every 3 minutes
-
+    
     def keyPressEvent(self, event):
         key = event.key()
         if key == Qt.Key_Q:
@@ -312,12 +381,25 @@ class Master(QMainWindow):
             time.sleep(0.1)
             self.slider.setValue(currentFrame)
             QApplication.processEvents()
-
+            
+    def keyPressDisplay(self, event):
+        key = event.key()
+        if key == Qt.Key_Q:
+            self.close()
+        elif key == Qt.Key_H:
+            if not self.hideBox.isChecked():
+                self.hideBox.setChecked(True)
+            elif self.hideBox.isChecked():
+                self.hideBox.setChecked(False)
+            self.hideBox.setChecked(self.hideBox.isChecked())
+        self.slider.keyPressEvent(event)
+        
     def parseDICOM(self):
         """Parses DICOM metadata"""
 
         if (len(self.dicom.PatientName.encode('ascii')) > 0):
-            self.patientName = self.dicom.PatientName.original_string.decode('utf-8')
+            self.patientName = self.dicom.PatientName.original_string.decode('utf-8').replace("^", " ").strip()
+            print(self.patientName)
         else:
             self.patientName = 'Unknown'
 
@@ -381,6 +463,7 @@ class Master(QMainWindow):
         #if self.dicom.get('PhotometricInterpretation') == 'YBR_FULL_422':
         #    #self.images = np.mean(self.images, 3, dtype=np.uint8)
         #    self.images = np.ascontiguousarray(self.images)[:, :, :, 0]
+        
 
     def readDICOM(self):
         """Reads DICOM images.
@@ -431,28 +514,34 @@ class Master(QMainWindow):
                 self.stent = ([[] for idx in range(self.numberOfFrames)], [[] for idx in range(self.numberOfFrames)])
 
             self.wid.setData(self.lumen, self.plaque, self.stent, self.images)
-            
 
-            lview_array = self.images[:, 250, :].astype(np.uint8, order='C', casting='unsafe')
-            lview_array = np.transpose(lview_array, (1, 0)).copy()            
+            # creaet lview data
+            self.lview_data = LViewData(self.images.shape)
+            lview_array = self.lview_data.update(self.images, self.current_angle)
 
-            lview_length = 1600
-            lview_height = 400
-            print("rect",self.lview.sceneRect().height(), self.lview.sceneRect().width())
             # lview
-            image=QImage(lview_array.data, lview_array.shape[1], lview_array.shape[0],  QImage.Format_Grayscale8).scaled(lview_length, lview_height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) 
+            image=QImage(lview_array.data, lview_array.shape[1], lview_array.shape[0],  QImage.Format_Grayscale8).scaled(self.lview_length, self.lview_height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) 
             pixmap = QPixmap.fromImage(image)
             lview_image = QGraphicsPixmapItem(pixmap)
-            self.scenelong.addItem(lview_image)
-            self.marker = QGraphicsLineItem()
-            #self.marker.setZValue(1)
 
-            self.marker.setLine(lview_length, 0, lview_length, lview_height)
-            self.marker.setPen(QPen(QColor(173, 216, 230), 2))
-            self.scenelong.addItem(self.marker)
-
-            self.slider.setValue(self.numberOfFrames-1)
+            self.lview.createScene(lview_array)
             
+            self.slider.setValue(self.numberOfFrames-1)
+
+
+            self.contoursButton.setEnabled(True)        
+            self.gatingButton.setEnabled(True)        
+            self.segmentButton.setEnabled(True)        
+            self.splineButton.setEnabled(True)        
+
+        
+    def angle3pt(self, a, b, c):
+        """Counterclockwise angle in degrees by turning from a to c around b
+        Returns a float between 0.0 and 360.0"""
+        ang = np.arctan2(c[1] - b[1], c[0] - b[0]) - np.arctan2(a[1] - b[1], a[0] - b[0])
+        ang = np.rad2deg(ang)
+        return ang + 360 if ang < 0 else ang
+    
     def readContours(self):
         """Reads contours.
 
@@ -471,7 +560,6 @@ class Master(QMainWindow):
             fileName, _ = QFileDialog.getOpenFileName(self, "QFileDialog.getOpenFileName()", "", "XML file (*.xml)", options=options)
             if fileName:
                 self.lumen, self.plaque, self.stent, self.resolution, frames = read_xml.read(fileName)
-
                 if len(self.lumen[0]) != self.dicom.NumberOfFrames:
                     warning = QErrorMessage()
                     warning.setWindowModality(Qt.WindowModal)
@@ -491,6 +579,19 @@ class Master(QMainWindow):
                     self.useGatedBox.setChecked(True)
                     self.slider.addGatedFrames(self.gatedFrames)
 
+                    self.metrics = self.computeContourMetrics(self.lumen, self.plaque)
+                    lumen_area, plaque_area, plaque_burden = self.metrics
+                    self.updateAreaDisplay(lumen_area, plaque_area, plaque_burden, self.slider.value())
+            
+                    self.lview_lumenY = [self.lview_length*(frame/self.numberOfFrames) for frame in self.gatedFrames]
+                    self.lview_plaqueY = [self.lview_length*(frame/self.numberOfFrames) for frame in self.gatedFrames]
+                    self.lview_lumen1, self.lview_lumen2 = self.getLviewCoordinates(self.lumen)
+                    self.lview_plaque1, self.lview_plaque2 = self.getLviewCoordinates(self.plaque)
+                    self.lview.createLViewContours(self.lview_lumenY, self.lview_plaqueY, self.lview_lumen1, self.lview_lumen2, self.lview_plaque1, self.lview_plaque2)
+                    
+            self.reportButton.setEnabled(True) 
+            self.writeButton.setEnabled(True)        
+            
     def play(self):
         "Plays all frames until end of pullback starting from currently selected frame"""
         start_frame = self.slider.value()
@@ -516,9 +617,9 @@ class Master(QMainWindow):
 
         patientName = self.infoTable.item(0, 1).text()
         saveName = patientName if fname is None else fname
-        saveName = 'temp'
+
         self.lumen, self.plaque = self.wid.getData()
-        print(patientName, saveName)
+        print("Saving", patientName, saveName)
 
         # reformat data for compatibility with write_xml function
         x, y = [], []
@@ -639,26 +740,50 @@ class Master(QMainWindow):
         self.wid.setData(self.lumen, self.plaque, self.stent, self.images)
         self.hideBox.setChecked(False)
         self.successMessage('Segmentation')
-   
+        
+        lumen_frames = [i for i in range(len(self.lumen[0])) if self.lumen[0][i]]
+        plaque_frames = [i for i in range(len(self.plaque[0])) if self.plaque[0][i]]
+
+
+        self.lview_lumenY = [self.lview_length*(frame/self.numberOfFrames) for frame in lumen_frames]
+        self.lview_plaqueY = [self.lview_length*(frame/self.numberOfFrames) for frame in plaque_frames]
+        self.lview_lumen1, self.lview_lumen2 = self.getLviewCoordinates(self.lumen)
+        self.lview_plaque1, self.lview_plaque2 = self.getLviewCoordinates(self.plaque)
+        self.lview.createLViewContours(self.lview_lumenY, self.lview_plaqueY, self.lview_lumen1, self.lview_lumen2, self.lview_plaque1, self.lview_plaque2)
+        
+        self.writeButton.setEnabled(True)        
+        self.reportButton.setEnabled(True) 
+            
     def newSpline(self):
         """Create a message box to choose what spline to create"""
 
         b3 = QPushButton("lumen")
         b2 = QPushButton("Vessel")
         b1 = QPushButton("Stent")
-
+        
+        checkbox = QCheckBox("Include current frame in gated contours?")
+        checkbox.setChecked(True)
         d = QMessageBox()
+        d.setCheckBox(checkbox)
         d.setText("Select which contour to draw")
         d.setInformativeText("Contour must be closed before proceeding by clicking on initial point")
         d.setWindowModality(Qt.WindowModal)
         d.addButton(b1, 0)
         d.addButton(b2, 1)
         d.addButton(b3, 2)
- 
+         
         result = d.exec_()
 
         self.wid.new(result)
+        self.gatedFrames.append(self.slider.value())
+        self.gatedFrames = list(set(self.gatedFrames))
+        self.gatedFrames.sort()
+
+        self.slider.addGatedFrames(self.gatedFrames)
         self.hideBox.setChecked(False)
+
+        self.writeButton.setEnabled(True)        
+        self.reportButton.setEnabled(True) 
     
     def maskToContours(self, masks):
         """Convert numpy mask to IVUS contours """
@@ -687,9 +812,16 @@ class Master(QMainWindow):
         for i in range(numberOfFrames):
             if lumen[0][i]:
                 lumen_area[i] = self.contourArea(lumen[0][i], lumen[1][i])*self.resolution**2
+            else:
+                lumen_area[i] = 0
+            if plaque[0][i]:
                 plaque_area[i] = self.contourArea(plaque[0][i], plaque[1][i])*self.resolution**2 - lumen_area[i]
+            else:
+                plaque_area[i] = 0
+            if lumen[0][i] and plaque[0][i]:
                 plaque_burden[i] = (plaque_area[i]/(lumen_area[i] + plaque_area[i]))*100
-
+            else:
+                plaque_burden[i] = 0
         return (lumen_area, plaque_area, plaque_burden)
 
     def mapToList(self, contours):
@@ -700,26 +832,143 @@ class Master(QMainWindow):
         y = [list(y[i]) for i in range(0, len(y))]
 
         return (x, y)
+        
+    def updateAreaDisplay(self, lumen_area, plaque_area, plaque_burden, frame):
+        """Updates the display of lumen, plaque area"""
+        if len(lumen_area) > 0:
+            self.info_lumen.setText(f"Lumen area:  {lumen_area[frame]:.2f} mm<sup>2</sup>")
+        if len(plaque_area) > 0:
+            self.info_plaque.setText(f"Plaque area: {plaque_area[frame]:.2f} mm<sup>2</sup>")
+        if len(lumen_area) > 0 and len(plaque_area) > 0:
+            self.info_vessel.setText(f"Vessel area: {(plaque_area[frame] + lumen_area[frame]):.2f} mm<sup>2</sup>")
+            self.info_burden.setText(f"Plaque burden: {plaque_burden[frame]:.2f} %")  
 
-    def changeValue(self, value):
+
+    def angle_to_vector(self, angle):
+        angle = np.deg2rad(angle)
+        x = np.cos(angle)
+        y = np.sin(angle)
+        return (x, y)
+
+    def getLviewCoordinates(self, contour):
+        lviewX1, lviewX2 = [], []
+        image_dim = self.images.shape
+
+        #line1=[[0,0], [500,0]]
+        #p = np.array(self.angle_to_vector(self.current_angle))
+        #print(p)
+        #p1 = 250 + p*image_dim[1]
+        #radius_normalizing_value = (p*500).max()
+        #line2 = [[250, 250], [p1[0],p1[1]]]
+        #get_intersect(line1[0], line1[1], line2[0], line2[1])
+        #slope1 = (line1[1][1] - line1[0][1])/(line1[1][0] - line1[0][0])
+        #slope2 = (line2[1][1] - line2[0][1])/(line2[1][0] - line2[0][0])
+        #intercept1 = line1[0][1] - slope1*line1[0][0]
+        #intercept2 = line2[0][1] - slope2*line2[0][0]
+        #xi = (intercept1 - intercept2) / (slope2 - slope1)
+        #yi = slope1 * xi + intercept1
+        if 45 <= self.current_angle < 135:
+            radius_normalizing_value = self.lview_data.rho[0, np.abs(np.round(self.lview_data.phi[0,:])-self.current_angle).argmin()]
+        elif 135 <= self.current_angle < 225:
+            radius_normalizing_value = self.lview_data.rho[np.abs(np.round(self.lview_data.phi[:, -1])-self.current_angle).argmin(), -1]
+        elif 225 <= self.current_angle < 315:
+            radius_normalizing_value = self.lview_data.rho[-1, np.abs(np.round(self.lview_data.phi[-1, :])-self.current_angle).argmin()]
+        else:
+            radius_normalizing_value = self.lview_data.rho[np.abs(np.round(self.lview_data.phi[:, 0])-self.current_angle).argmin(), 0]
+
+        for i in range(len(contour[0])):
+            if contour[0][i]:
+                
+                x = np.array([val - image_dim[1]//2 for val in contour[0][i]])
+                y = np.array([val - image_dim[1]//2 for val in contour[1][i]])
+
+                theta = np.rad2deg(np.arctan2(y, x)) + 180
+
+                rho = np.sqrt(x**2 + y**2)
+                angle_idx1 = np.abs(theta - self.current_angle).argmin()
+                angle_idx2 = np.abs(theta - (180 + self.current_angle)%360).argmin()
+                #print(angle_idx1, angle_idx2)
+                lviewX1.append(self.lview_height//2 - rho[angle_idx1]/(radius_normalizing_value)*(self.lview_height//2))
+                lviewX2.append(self.lview_height//2 + rho[angle_idx2]/(radius_normalizing_value)*(self.lview_height//2))
+        return lviewX1, lviewX2
+        
+    def updateLview(self, x1, y1, x2, y2):
+        """this is triggered if the lview is changed via the crossbar"""
+        if not self.image:
+            return
+        #self.scenelong.clear()
+        #self.lview.viewport().update()
+
+        #[self.removeItem(item) for item in self.scenelong.items()]
+
+        #print(x1,y1, x2, y2)
+        line1 = [[0, self.displayTopSize//2], [self.displayTopSize//2, self.displayTopSize//2]]
+        line2 = [[x1, y1], [x2, y2]]
+        current_angle = round(self.angle3pt(line1[0], line1[1], line2[0]))
+        #print(current_angle)
+        
+        # current_angle is returned where 9pm is 180 degress and angle increase clockwise
+        # need to subtract 180 in order to match image polar coordinates where 9pm is 0 degrees
+        current_angle = current_angle  - 180
+        current_angle = current_angle + 360 if current_angle < 0 else current_angle
+        self.current_angle = current_angle
+        #print(current_angle)
+        
+        lview_array = self.lview_data.update(self.images, current_angle)
+
+        # lview
+        self.lview.updateImage(lview_array)
+        
+        lumen_frames = [i for i in range(len(self.lumen[0])) if self.lumen[0][i]]
+        plaque_frames = [i for i in range(len(self.plaque[0])) if self.plaque[0][i]]
+
+        if self.contours:
+            self.lview_lumenY = [self.lview_length*(frame/self.numberOfFrames) for frame in lumen_frames]
+            self.lview_plaqueY = [self.lview_length*(frame/self.numberOfFrames) for frame in plaque_frames]
+            self.lview_lumen1, self.lview_lumen2 = self.getLviewCoordinates(self.lumen)
+            self.lview_plaque1, self.lview_plaque2 = self.getLviewCoordinates(self.plaque)
+            self.lview.updateLViewContours(self.lview_lumenY, self.lview_plaqueY, self.lview_lumen1, self.lview_lumen2, self.lview_plaque1, self.lview_plaque2)
+                                 
+    def changeContour(self, is_true):
+        if is_true:
+            self.lumen, self.plaque = self.wid.getData()
+            self.metrics = self.computeContourMetrics(self.lumen, self.plaque)
+            lumen_area, plaque_area, plaque_burden = self.metrics
+            self.updateAreaDisplay(lumen_area, plaque_area, plaque_burden, self.slider.value())
+           
+            lumen_frames = [i for i in range(len(self.lumen[0])) if self.lumen[0][i]]
+            plaque_frames = [i for i in range(len(self.plaque[0])) if self.plaque[0][i]]
+            
+            # add changing coordinates when lview is changed
+            self.lview_lumenY = [self.lview_length*(frame/self.numberOfFrames) for frame in lumen_frames]
+            self.lview_plaqueY = [self.lview_length*(frame/self.numberOfFrames) for frame in plaque_frames]
+            self.lview_lumen1, self.lview_lumen2 = self.getLviewCoordinates(self.lumen)
+            self.lview_plaque1, self.lview_plaque2 = self.getLviewCoordinates(self.plaque)
+            self.lview.updateLViewContours(self.lview_lumenY, self.lview_plaqueY, self.lview_lumen1, self.lview_lumen2, self.lview_plaque1, self.lview_plaque2)
+
+    def changeValue2(self, value):
+        """runs when lview marker is changed"""
+        value = round(value*(self.numberOfFrames - 1))
         self.c.updateBW.emit(value)
         self.wid.run()
         self.text.setText(f"Frame {value}")
+        self.slider.setValue(value)
+
+    def changeValue(self, value):
+        """runs when slider is moved"""
+        self.c.updateBW.emit(value)
+        self.wid.run()
+        self.text.setText(f"Frame {value}")
+        self.slider.setValue(value)
         lumen_area, plaque_area, plaque_burden = self.metrics
-        if len(lumen_area) > 0:
-            self.info_lumen.setText(f"Lumen area:  {lumen_area[value]} mm<sup>2</sup>")
-        if len(plaque_area) > 0:
-            self.info_plaque.setText(f"Plaque area: {plaque_area[value]} mm<sup>2</sup>")
-        if len(lumen_area) > 0 and len(plaque_area) > 0:
-            self.info_vessel.setText(f"Vessel area: {plaque_area[value] + lumen_area[value]} mm<sup>2</sup>")
-            self.info_burden.setText(f"Plaque burden: {plaque_burden[value]} %")        
+        self.updateAreaDisplay(lumen_area, plaque_area, plaque_burden, value)       
 
         lview_length = self.lview.sceneRect().width()
         lview_height = self.lview.sceneRect().height()
-        xpos = round(lview_length*value/self.numberOfFrames)
-        self.marker.setLine(xpos, 0, xpos, lview_height)
-        #self.scenelong.addItem(self.marker)
-            
+        
+        xpos = round(self.lview_length*value/self.numberOfFrames)
+        self.lview.updateMarker(xpos)
+        
     def changeState(self, value):
         self.c.updateBool.emit(value)
         self.wid.run()
