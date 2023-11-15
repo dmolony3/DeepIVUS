@@ -1,25 +1,28 @@
 from PyQt5.QtWidgets import QGraphicsEllipseItem, QGraphicsPathItem, QGraphicsLineItem
 from PyQt5.QtCore import Qt, QPointF
-from PyQt5.QtGui import QPen, QPainterPath, QColor
+from PyQt5.QtGui import QPen, QPainter, QPainterPath, QColor, QPolygonF
 import numpy as np
 from scipy.interpolate import splprep, splev
 
 class Marker(QGraphicsLineItem):
     """Class that describes a line in the longitudinal view"""
-    def __init__(self, pos, display_height, display_length):
+    def __init__(self, pos, display_height, display_length, color=[173, 216, 230], dashed=False):
         super(Marker, self).__init__()
         self.setZValue(3)
         self.display_height = display_height
         self.display_length = display_length
 
-        self.defaultColor = QPen(QColor(173, 216, 230), 5)
+        self.defaultColor = QPen(QColor(color[0], color[1], color[2]), 2)
 
+        if dashed:
+            self.defaultColor.setDashPattern([10,10,10])
         self.setLine(pos, 0, pos, self.display_height) 
         self.setPen(self.defaultColor)
+        self.pos = self.display_length
         
     def update(self, pos):
         """Updates the Point position"""
-        
+        self.pos = pos
         # point must be constrained to bottom and top of scene 
         if pos < 0:
             pos = 0
@@ -28,7 +31,113 @@ class Marker(QGraphicsLineItem):
         self.setLine(pos, 0, pos, self.display_height)
         return pos
         
+class Arrowhead(QGraphicsPathItem):
+    def __init__(self, source: QPointF = None, direction: str = "left"):
+        super(Arrowhead, self).__init__()
 
+        self._sourcePoint = source
+        self.defaultColor = QPen(QColor(255, 255, 255), 2)
+        self.setPen(self.defaultColor)
+        self.direction = direction
+        #self.setZValue(3)
+
+    def directPath(self):
+        p1 = QPointF(self._sourcePoint.x(), self._sourcePoint.y() + 5.0)
+        p2 = QPointF(self._sourcePoint.x(), self._sourcePoint.y() - 5.0)
+        if self.direction == "right":
+            p3 = QPointF(self._sourcePoint.x() + 5.0, self._sourcePoint.y())
+        else:
+            p3 = QPointF(self._sourcePoint.x() - 5.0, self._sourcePoint.y())
+        
+        path = QPainterPath(p1)
+        path.lineTo(p2)
+        path.lineTo(p3)
+        path.closeSubpath()
+        return path
+        
+    def draw(self):
+        path = self.directPath()
+        self.setPath(path)
+        
+class Arrowbody(QGraphicsPathItem):
+    def __init__(self, source: QPointF = None, destination: QPointF = None, *args, **kwargs):
+        super(Arrowbody, self).__init__(*args, **kwargs)
+
+        self._sourcePoint = source
+        self._destinationPoint = destination
+        self.defaultColor = QPen(QColor(255, 255, 255), 2)
+        self.setPen(self.defaultColor)
+        #self.setZValue(3)
+
+        self._arrow_height = 5
+        self._arrow_width = 4
+
+    def setSource(self, point: QPointF):
+        self._sourcePoint = point
+
+    def setDestination(self, point: QPointF):
+        self._destinationPoint = point
+
+    def directPath(self):
+        path = QPainterPath(self._sourcePoint)
+        path.lineTo(self._destinationPoint)
+        return path
+
+    def arrowCalc(self, start_point=None, end_point=None):  # calculates the point where the arrow should be drawn
+
+        try:
+            startPoint, endPoint = start_point, end_point
+
+            if start_point is None:
+                startPoint = self._sourcePoint
+
+            if endPoint is None:
+                endPoint = self._destinationPoint
+
+            dx, dy = startPoint.x() - endPoint.x(), startPoint.y() - endPoint.y()
+
+            leng = math.sqrt(dx ** 2 + dy ** 2)
+            normX, normY = dx / leng, dy / leng  # normalize
+
+            # perpendicular vector
+            perpX = -normY
+            perpY = normX
+
+            leftX = endPoint.x() + self._arrow_height * normX + self._arrow_width * perpX
+            leftY = endPoint.y() + self._arrow_height * normY + self._arrow_width * perpY
+
+            rightX = endPoint.x() + self._arrow_height * normX - self._arrow_width * perpX
+            rightY = endPoint.y() + self._arrow_height * normY - self._arrow_width * perpY
+
+            point2 = QPointF(leftX, leftY)
+            point3 = QPointF(rightX, rightY)
+
+            return QPolygonF([point2, endPoint, point3])
+
+        except (ZeroDivisionError, Exception):
+            return None
+            
+    def draw(self):
+    
+        path = self.directPath()
+        self.setPath(path)
+
+    #def paint(self, painter: QPainter, option, widget=None) -> None:
+
+    #    painter.setRenderHint(painter.Antialiasing)
+
+    #    painter.pen().setWidth(2)
+    #    painter.setBrush(Qt.NoBrush)
+
+    #    path = self.directPath()
+    #    painter.drawPath(path)
+    #    self.setPath(path)
+
+    #    triangle_source = self.arrowCalc(path.pointAtPercent(0.1), self._sourcePoint)  # change path.PointAtPercent() value to move arrow on the line
+
+    #    if triangle_source is not None:
+    #        painter.drawPolyline(triangle_source)
+            
 class Line(QGraphicsLineItem):
     """Class that describes a line in the cross-section view"""
     def __init__(self, pos, display_size):
