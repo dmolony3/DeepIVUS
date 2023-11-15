@@ -5,14 +5,22 @@ from PyQt5.QtGui import QIcon, QFont, QPixmap, QImage, QPen, QColor, QPainterPat
 from IVUS_gating import IVUS_gating
 from IVUS_prediction import predict
 from write_xml import write_xml, get_contours, mask_image
-from display import Display, LView
+from display import Display, LView, LesionView
 from PIL import Image
+from itertools import groupby
+from operator import itemgetter
 import os, sys, time, read_xml
 import pydicom as dcm
 import numpy as np
 import subprocess
 import click
-import scipy
+
+
+class Settings():
+    def __init__(self):
+        self.autoSave = True
+        self.lesion_length = 3
+        self.lesion_merge_length = 1.5
 
 class LViewData():
     """Creates an lview and returns the image"""
@@ -174,8 +182,10 @@ class Master(QMainWindow):
         self.current_angle = 0
         self.gatedFrames = []
         self.metrics = ([], [], [])
+        self.lesion_info = []
         self.lumen = ()
         self.plaque = ()
+        self.settings = Settings()
         self.initUI()
 
     def initUI(self):
@@ -264,7 +274,15 @@ class Master(QMainWindow):
         self.infoTable.verticalScrollBar().setDisabled(True)
         self.infoTable.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         vbox2.addLayout(vbox2hbox1)
-
+        
+        vbox2hbox2 = QHBoxLayout()
+        vbox2hbox3 = QHBoxLayout()
+        vbox2hbox4 = QHBoxLayout()
+        vbox2hbox5 = QHBoxLayout()
+        vbox2.addLayout(vbox2hbox2)
+        vbox2.addLayout(vbox2hbox3)
+        vbox2.addLayout(vbox2hbox4)
+        vbox2.addLayout(vbox2hbox5)
 
         self.dicomButton.clicked.connect(self.readDICOM)
         self.contoursButton.clicked.connect(self.readContours)
@@ -315,13 +333,21 @@ class Master(QMainWindow):
 
         vbox2.addWidget(self.hideBox)
         vbox2.addWidget(self.useGatedBox)
-        vbox2.addWidget(self.dicomButton)
-        vbox2.addWidget(self.contoursButton)
-        vbox2.addWidget(self.gatingButton)
-        vbox2.addWidget(self.segmentButton)
-        vbox2.addWidget(self.splineButton)
-        vbox2.addWidget(self.writeButton)
-        vbox2.addWidget(self.reportButton)
+        #vbox2.addWidget(self.dicomButton)
+        #vbox2.addWidget(self.contoursButton)
+        #vbox2.addWidget(self.gatingButton)
+        #vbox2.addWidget(self.segmentButton)
+        #vbox2.addWidget(self.splineButton)
+        #vbox2.addWidget(self.writeButton)
+        #vbox2.addWidget(self.reportButton)
+        vbox2hbox2.addWidget(self.dicomButton)
+        vbox2hbox2.addWidget(self.contoursButton)
+        vbox2hbox3.addWidget(self.gatingButton)
+        vbox2hbox3.addWidget(self.segmentButton)
+        vbox2hbox4.addWidget(self.splineButton)
+        vbox2hbox5.addWidget(self.writeButton)
+        vbox2hbox5.addWidget(self.reportButton)
+
         vbox2hbox1.addWidget(self.infoTable)
         vbox1.addLayout(vbox1hbox2)
         vbox1hbox2.addWidget(self.info_lumen)
@@ -343,6 +369,23 @@ class Master(QMainWindow):
         lay.addWidget(self.lview)
         vbox2.addWidget(displayBottom)
         vbox2.addLayout(lay)
+        
+        displayBottom1 = QWidget()
+        displayBottom1.setFixedHeight(self.lview_height//2)
+        lay1 = QHBoxLayout(displayBottom1)
+        
+        self.lesionView = LesionView()
+        #self.lview.markerChangedSignal.connect(self.lesionView.updateMarker)
+        #self.lview.markerChangedKeySignal.connect(self.lesionView.updateMarkerFromKey)
+        self.slider.valueChanged[int].connect(self.lesionView.updateMarker)
+        self.lesionView.updateFrameFromLesionViewSignal.connect(self.changeValue)
+
+        lay1.addWidget(self.lesionView)
+        vbox2.addWidget(displayBottom1)
+        vbox2.addLayout(lay1)
+
+        self.lview.horizontalScrollBar().valueChanged.connect(self.lesionView.horizontalScrollBar().setValue)
+        self.lesionView.horizontalScrollBar().valueChanged.connect(self.lview.horizontalScrollBar().setValue)
         
         centralWidget = QWidget()
         centralWidget.setLayout(layout)
@@ -585,12 +628,74 @@ class Master(QMainWindow):
             
                     self.lview_lumenY = [self.lview_length*(frame/self.numberOfFrames) for frame in self.gatedFrames]
                     self.lview_plaqueY = [self.lview_length*(frame/self.numberOfFrames) for frame in self.gatedFrames]
-                    self.lview_lumen1, self.lview_lumen2 = self.getLviewCoordinates(self.lumen)
-                    self.lview_plaque1, self.lview_plaque2 = self.getLviewCoordinates(self.plaque)
+                    self.lview_lumen, self.lview_lumen1, self.lview_lumen2 = self.getLviewCoordinates(self.lumen)
+                    self.lview_plaque, self.lview_plaque1, self.lview_plaque2 = self.getLviewCoordinates(self.plaque)
                     self.lview.createLViewContours(self.lview_lumenY, self.lview_plaqueY, self.lview_lumen1, self.lview_lumen2, self.lview_plaque1, self.lview_plaque2)
                     
+                    self.lesion_info = self.lesion_analysis(lumen_area, plaque_area, plaque_burden)
+                    self.lesionView.setNumberOfFrames(self.numberOfFrames)
+                    self.lesionView.createScene(self.lview_lumenY, self.lview_plaqueY, self.lview_lumen, self.lview_plaque, self.lesion_info, self.lview_length)
             self.reportButton.setEnabled(True) 
-            self.writeButton.setEnabled(True)        
+            self.writeButton.setEnabled(True)
+
+    def lesion_analysis(self, lumen_area, plaque_area, plaque_burden):
+        """identifies which frames are part of a lesion where lesion is defined 
+        as >=3 frames wiht plaque burden >40%
+        """
+
+        lumen_area = lumen_area[self.gatedFrames]
+        plaque_area = plaque_area[self.gatedFrames]
+        plaque_burden = plaque_burden[self.gatedFrames]
+        
+        # result is a dictionary contaning tuples of the value and the indices containing the value
+        # if lesions are within 5mm of each other they are considered a single lesion
+        lesion_idx = (plaque_burden > 40).astype(int)
+        num_frames = 3
+        result = []
+        for k, g in groupby(enumerate(lesion_idx), key=itemgetter(1)):
+            group = list(g)
+            if len(group) >= num_frames:
+                if k != 0:
+                    result.append((k, list(map(itemgetter(0), group))))
+                    
+        num_lesions = len(result)
+    
+        lesion_info = []
+        for i in range(num_lesions):
+            lesion = {}
+            lesion['MLA'] = lumen_area[result[i][1]].min()
+            lesion['idx' ] = [self.gatedFrames[idx] for idx in result[i][1]]
+            lesion['MLA idx'] = self.gatedFrames[result[i][1][0] + lumen_area[result[i][1]].argmin()]
+            lesion['MPB idx'] = self.gatedFrames[result[i][1][0] + plaque_burden[result[i][1]].argmax()]
+            lesion_length = self.pullbackLength[self.gatedFrames[result[i][1][-1]]] - self.pullbackLength[self.gatedFrames[result[i][1][0]]]
+            lesion['length'] = lesion_length
+            
+            
+            # merge lesions that are within n mm of each other
+            if i == 0:
+                lesion_info.append(lesion)
+            else:
+                lesion_distance = (lesion['idx'][0] - lesion_info[-1]['idx'][-1])*self.pullbackLength[1]
+                if lesion_distance <= self.settings.lesion_merge_length:
+                    frame_idx = [idx for idx, frame in enumerate(self.gatedFrames) if frame in lesion_info[-1]['idx']]
+                    missing_idx = list(range(frame_idx[-1] + 1, result[i][1][0]))
+                    frame_idx.extend(missing_idx)
+                    frame_idx.extend(result[i][1])
+                    lesion['MLA'] = lumen_area[frame_idx].min()
+                    lesion['idx' ] = [self.gatedFrames[idx] for idx in frame_idx]
+                    lesion['MLA idx'] = self.gatedFrames[frame_idx[0] + lumen_area[frame_idx].argmin()]
+                    lesion['MPB idx'] = self.gatedFrames[frame_idx[0] + plaque_burden[frame_idx].argmax()]
+                    lesion_length = self.pullbackLength[self.gatedFrames[frame_idx[-1]]] - self.pullbackLength[self.gatedFrames[frame_idx[0]]]
+                    lesion['length'] = lesion_length    
+                    lesion_info[-1] = lesion
+
+        # remove any lesions that are less than minimum lesion length
+        for i in range(len(lesion_info)):
+            if lesion_info[i]['length'] < self.settings.lesion_length:
+                lesion_info.pop(i)
+                print(f"Removed lesion {i} of {lesion_info[i]['length']} mm length")
+
+        return lesion_info        
             
     def play(self):
         "Plays all frames until end of pullback starting from currently selected frame"""
@@ -619,7 +724,6 @@ class Master(QMainWindow):
         saveName = patientName if fname is None else fname
 
         self.lumen, self.plaque = self.wid.getData()
-        print("Saving", patientName, saveName)
 
         # reformat data for compatibility with write_xml function
         x, y = [], []
@@ -641,7 +745,7 @@ class Master(QMainWindow):
     def autoSave(self):
         """Automatically saves contours to a temporary file every 180 seconds"""
 
-        if self.contours:
+        if self.contours and self.settings.autoSave:
             print('Automatically saving current contours')
             self.writeContours('temp')
 
@@ -747,10 +851,14 @@ class Master(QMainWindow):
 
         self.lview_lumenY = [self.lview_length*(frame/self.numberOfFrames) for frame in lumen_frames]
         self.lview_plaqueY = [self.lview_length*(frame/self.numberOfFrames) for frame in plaque_frames]
-        self.lview_lumen1, self.lview_lumen2 = self.getLviewCoordinates(self.lumen)
-        self.lview_plaque1, self.lview_plaque2 = self.getLviewCoordinates(self.plaque)
+        self.lview_lumen, self.lview_lumen1, self.lview_lumen2 = self.getLviewCoordinates(self.lumen)
+        self.lview_plaque, self.lview_plaque1, self.lview_plaque2 = self.getLviewCoordinates(self.plaque)
         self.lview.createLViewContours(self.lview_lumenY, self.lview_plaqueY, self.lview_lumen1, self.lview_lumen2, self.lview_plaque1, self.lview_plaque2)
         
+        self.lesion_info = self.lesion_analysis(*self.metrics)
+        self.lesionView.setNumberOfFrames(self.numberOfFrames)
+        self.lesionView.createScene(self.lview_lumenY, self.lview_plaqueY, self.lview_lumen, self.lview_plaque, self.lesion_info, self.lview_length)
+
         self.writeButton.setEnabled(True)        
         self.reportButton.setEnabled(True) 
             
@@ -852,6 +960,8 @@ class Master(QMainWindow):
 
     def getLviewCoordinates(self, contour):
         lviewX1, lviewX2 = [], []
+        lviewX1_normalized, lviewX2_normalizec = [], []
+        lviewX = []
         image_dim = self.images.shape
 
         #line1=[[0,0], [500,0]]
@@ -888,9 +998,11 @@ class Master(QMainWindow):
                 angle_idx1 = np.abs(theta - self.current_angle).argmin()
                 angle_idx2 = np.abs(theta - (180 + self.current_angle)%360).argmin()
                 #print(angle_idx1, angle_idx2)
+                lviewX.append(((rho[angle_idx1] + rho[angle_idx2])/2)/(radius_normalizing_value))
+                
                 lviewX1.append(self.lview_height//2 - rho[angle_idx1]/(radius_normalizing_value)*(self.lview_height//2))
                 lviewX2.append(self.lview_height//2 + rho[angle_idx2]/(radius_normalizing_value)*(self.lview_height//2))
-        return lviewX1, lviewX2
+        return lviewX, lviewX1, lviewX2
         
     def updateLview(self, x1, y1, x2, y2):
         """this is triggered if the lview is changed via the crossbar"""
@@ -925,8 +1037,8 @@ class Master(QMainWindow):
         if self.contours:
             self.lview_lumenY = [self.lview_length*(frame/self.numberOfFrames) for frame in lumen_frames]
             self.lview_plaqueY = [self.lview_length*(frame/self.numberOfFrames) for frame in plaque_frames]
-            self.lview_lumen1, self.lview_lumen2 = self.getLviewCoordinates(self.lumen)
-            self.lview_plaque1, self.lview_plaque2 = self.getLviewCoordinates(self.plaque)
+            self.lview_lumen, self.lview_lumen1, self.lview_lumen2 = self.getLviewCoordinates(self.lumen)
+            self.lview_plaque, self.lview_plaque1, self.lview_plaque2 = self.getLviewCoordinates(self.plaque)
             self.lview.updateLViewContours(self.lview_lumenY, self.lview_plaqueY, self.lview_lumen1, self.lview_lumen2, self.lview_plaque1, self.lview_plaque2)
                                  
     def changeContour(self, is_true):
@@ -942,9 +1054,12 @@ class Master(QMainWindow):
             # add changing coordinates when lview is changed
             self.lview_lumenY = [self.lview_length*(frame/self.numberOfFrames) for frame in lumen_frames]
             self.lview_plaqueY = [self.lview_length*(frame/self.numberOfFrames) for frame in plaque_frames]
-            self.lview_lumen1, self.lview_lumen2 = self.getLviewCoordinates(self.lumen)
-            self.lview_plaque1, self.lview_plaque2 = self.getLviewCoordinates(self.plaque)
+            self.lview_lumen, self.lview_lumen1, self.lview_lumen2 = self.getLviewCoordinates(self.lumen)
+            self.lview_plaque, self.lview_plaque1, self.lview_plaque2 = self.getLviewCoordinates(self.plaque)
             self.lview.updateLViewContours(self.lview_lumenY, self.lview_plaqueY, self.lview_lumen1, self.lview_lumen2, self.lview_plaque1, self.lview_plaque2)
+            
+            self.lesion_info = self.lesion_analysis(*self.metrics)
+            self.lesionView.createScene(self.lview_lumenY, self.lview_plaqueY, self.lview_lumen, self.lview_plaque, self.lesion_info, self.lview_length)
 
     def changeValue2(self, value):
         """runs when lview marker is changed"""
@@ -954,6 +1069,7 @@ class Master(QMainWindow):
         self.text.setText(f"Frame {value}")
         self.slider.setValue(value)
 
+            
     def changeValue(self, value):
         """runs when slider is moved"""
         self.c.updateBW.emit(value)

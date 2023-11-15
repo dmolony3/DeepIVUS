@@ -1,9 +1,207 @@
-from geometry import Point, Spline, Line, Marker
+from geometry import Point, Spline, Line, Marker, Arrowbody, Arrowhead
 from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsPathItem, QGraphicsLineItem, QHBoxLayout, QWidget, QFrame
-from PyQt5.QtCore import Qt, QPointF, pyqtSignal
-from PyQt5.QtGui import QPixmap, QImage, QPen, QColor, QPainterPath
+from PyQt5.QtCore import Qt, QPointF, pyqtSignal, QPoint, QLineF
+from PyQt5.QtGui import QPixmap, QImage, QPen, QColor, QFont, QPainter, QPainterPath
 import math
 import numpy as np
+from PIL import ImageDraw, Image
+
+class LesionView(QGraphicsView):
+    """Displays graphical lesion analysis in the longitudinal view.
+
+    """
+    updateFrameFromLesionViewSignal = pyqtSignal(int)
+    def __init__(self):
+        super(LesionView, self).__init__()
+        print("View Height: {}, View Width: {}".format(self.width(), self.height()))
+        self.lview_length = 1600
+        self.lview_height = 200
+        self.numberOfFrames = 0
+        self.setFrameStyle(QFrame.NoFrame)
+
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.horizontalScrollBar().hide()
+        
+        self.pos = self.lview_length
+        self.marker = None
+        self.scene = QGraphicsScene(self)
+        self.scene.setBackgroundBrush(Qt.black)
+
+        self.setScene(self.scene)
+        
+    def createPolygon(self, lview_lumenY, lview_plaqueY, lview_lumen, lview_plaque):
+        """Updates the lview"""
+        #print(lview_lumenY)
+        lview_lumen1, lview_lumen2 = [], []
+        lview_plaque1, lview_plaque2 = [], []
+        for i in range(len(lview_lumen)):
+            lview_lumen1.append(self.lview_height//2 - lview_lumen[i]*(self.lview_height//2))
+            lview_lumen2.append(self.lview_height//2 + lview_lumen[i]*(self.lview_height//2))
+
+        for i in range(len(lview_plaque)):
+            lview_plaque1.append(self.lview_height//2 - lview_plaque[i]*(self.lview_height//2))
+            lview_plaque2.append(self.lview_height//2 + lview_plaque[i]*(self.lview_height//2))
+
+        lumen_polygon = []
+        plaque_polygon = []
+        for i in range(len(lview_lumen1)):
+            lumen_polygon.append((int(lview_lumen1[i]), int(lview_lumenY[i])))
+            
+        for i in reversed(range(len(lview_lumen2))):
+            lumen_polygon.append((int(lview_lumen2[i]), int(lview_lumenY[i])))
+            
+        for i in range(len(lview_plaque1)):
+            plaque_polygon.append((int(lview_plaque1[i]), int(lview_lumenY[i])))
+            
+        for i in reversed(range(len(lview_plaque2))):
+            plaque_polygon.append((int(lview_plaque2[i]), int(lview_lumenY[i])))
+            
+        self.lview_lumenY = lview_lumenY
+        self.lview_plaqueY = lview_plaqueY
+        return lumen_polygon, plaque_polygon
+        
+    
+    def createImage(self, lview_lumenY, lview_plaqueY, lview_lumen, lview_plaque):
+        """creates a cartoon image of lumen area"""
+        lumen_polygon, plaque_polygon = self.createPolygon(lview_lumenY, lview_plaqueY, lview_lumen, lview_plaque)
+        
+        # L is grayscale
+        #image = Image.new('RGB', (self.lview_height, self.lview_length), (0, 0, 0))
+        image = Image.new('RGB', (self.lview_height, self.lview_length), (128, 128, 128)) #gray
+
+        ImageDraw.Draw(image).polygon(plaque_polygon, outline=1, fill=255)
+        ImageDraw.Draw(image).polygon(lumen_polygon, outline=1, fill=1)
+        image = np.transpose(np.array(image), [1, 0, 2]).copy()
+
+        return image
+        
+    def createLesion(self, lesion_info):
+        """creates an overlay image that colors lesions"""
+        num_lesions = len(lesion_info)
+        opacity = 25
+        
+        lesion = np.zeros((self.imsize[0], self.imsize[1], 4), dtype=np.uint8)
+        for i in range(num_lesions):
+            idx = [frame / self.numberOfFrames * self.lview_length for frame in lesion_info[i]['idx']]
+            lesion[:, int(round(idx[0])):int(round(idx[-1]))] = [255, 0, 0, opacity]
+
+        bytesPerLine = 4*self.imsize[1]
+        
+        image = QImage(lesion.data, lesion.shape[1], lesion.shape[0], bytesPerLine, QImage.Format_RGBA8888).scaled(self.lview_length, self.lview_height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) 
+        pixmap = QPixmap.fromImage(image)
+        self.pixmap = self.scene.addPixmap(pixmap)           
+       
+    def createArrow(self, lesion_start, lesion_end, lesion_mid, direction="left"):
+        
+        if direction == "left":
+            source = QPointF(lesion_start + 5, self.lview_height//2)
+            destination = QPointF(lesion_mid - 50, self.lview_height//2)
+            head = Arrowhead(source, direction)
+        elif direction == "right":
+            source = QPointF(lesion_mid + 50, self.lview_height//2)
+            destination = QPointF(lesion_end - 5, self.lview_height//2)
+            head = Arrowhead(destination, direction)
+
+        head.draw()
+        self.scene.addItem(head)
+        
+        self.body = Arrowbody(source, destination)
+        self.body.draw()
+        self.scene.addItem(self.body)
+            
+    def createScene(self, lview_lumenY, lview_plaqueY, lview_lumen, lview_plaque, lesion_info, lview_length):
+        # create marker for display current cross section in lview mode
+        num_frames = len(lview_lumenY)
+        self.lview_length = lview_length
+        fill = (0, 0, 0)
+        self.scene.clear()
+        [self.removeItem(item) for item in self.scene.items()]
+        
+        image = self.createImage(lview_lumenY, lview_plaqueY, lview_lumen, lview_plaque)
+        self.imsize = image.shape
+        
+        bytesPerLine = 3*self.imsize[1]
+
+        image = QImage(image.data, image.shape[1], image.shape[0], bytesPerLine, QImage.Format_RGB888).scaled(self.lview_length, self.lview_height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) 
+        pixmap = QPixmap.fromImage(image)
+        self.pixmap = self.scene.addPixmap(pixmap)        
+
+        self.marker = Marker(self.pos, self.lview_height, self.lview_length)
+        self.scene.addItem(self.marker)
+
+        num_lesions = len(lesion_info)
+
+        for i in range(num_lesions):
+            lesion_mla = lesion_info[i]['MLA idx']/self.numberOfFrames * self.lview_length
+            lesion_mpb = lesion_info[i]['MPB idx']/self.numberOfFrames * self.lview_length
+            lesion_start = lesion_info[i]['idx'][0]/self.numberOfFrames * self.lview_length
+            lesion_end = lesion_info[i]['idx'][-1]/self.numberOfFrames * self.lview_length
+            lesion_mid = lesion_start + (lesion_end - lesion_start)/2
+
+            if lesion_mla < 40:
+                lesion_mla = lesion_mla + 40
+            elif lesion_mla > self.lview_length - 90:
+                lesion_mla = lesion_mla - 90
+            
+            if lesion_mpb < 40:
+                lesion_mpb = lesion_mpb + 40
+            elif lesion_mpb > self.lview_length - 90:
+                lesion_mpb = lesion_mpb - 90
+                
+            self.mla_marker = Marker(lesion_mla, self.lview_height, self.lview_length, [255,255,0], dashed=True)
+            self.scene.addItem(self.mla_marker)
+
+            #textArea = self.scene.addText(f"{lesion_info[i]['MLA']:.2f}mm\u00b2")
+            textArea = self.scene.addText('MLA')
+            textArea.setPos(lesion_mla, self.lview_height//2)
+            textArea.setDefaultTextColor(QColor(255, 255, 0))
+            textArea.setFont(QFont('Roboto'))
+  
+            self.mpb_marker = Marker(lesion_mpb, self.lview_height, self.lview_length, [255,255,0], dashed=True)
+            self.scene.addItem(self.mpb_marker)
+
+            textArea = self.scene.addText("MPB")
+            textArea.setPos(lesion_mpb, self.lview_height//2)
+            textArea.setDefaultTextColor(QColor(255, 255, 0))
+            textArea.setFont(QFont('Roboto'))
+            
+            self.createArrow(lesion_start, lesion_end, lesion_mid, direction="left")
+            self.createArrow(lesion_start, lesion_end, lesion_mid, direction="right")
+            
+            textLength = self.scene.addText(f"{lesion_info[i]['length']:.1f}mm")
+            if lesion_info[i]['length'] < 10:
+                textLength.setPos(lesion_mid - 45, self.lview_height//2 + 20)
+            else:    
+                textLength.setPos(lesion_mid - 45, self.lview_height//2 - 20)
+            textLength.setDefaultTextColor(QColor(255, 255, 255))
+            font = QFont('Roboto')
+            font.setBold(True)
+            textLength.setFont(font)
+            
+        self.createLesion(lesion_info)
+
+    def setNumberOfFrames(self, numberOfFrames):
+        self.numberOfFrames = numberOfFrames
+                
+    def updateMarker(self, pos):
+        if self.marker is None:
+            return
+        self.pos = pos/self.numberOfFrames*self.lview_length
+        self.marker.update(self.pos)
+        
+    def mousePressEvent(self, event):
+        super(LesionView, self).mousePressEvent(event)
+        pos = self.mapToScene(event.pos())
+        
+        mla_dist = pos.x() - self.mla_marker.line().x1()
+        mpd_dist = pos.x() - self.mpb_marker.line().x1()
+        if abs(mla_dist) < 5:
+            frame = round(self.mla_marker.line().x1()/self.lview_length * self.numberOfFrames)
+            self.updateFrameFromLesionViewSignal.emit(frame)
+        elif abs(mpd_dist) < 5:
+            frame = round(self.mpb_marker.line().x1()/self.lview_length * self.numberOfFrames)
+            self.updateFrameFromLesionViewSignal.emit(frame)        
 
 class LView(QGraphicsView):
     """Displays images and contours in the longitudinal view.
@@ -13,13 +211,6 @@ class LView(QGraphicsView):
 
     Attributes:
         scene: QGraphicsScene, all items
-        frame: int, current frame
-        lumen: tuple, lumen contours
-        plaque: tuple: plaque contours
-        hide: bool, indicates whether contours should be displayed or hidden
-        activePoint: Point, active point in spline
-        innerPoint: list, spline points for inner (lumen) contours
-        outerPoint: list, spline points for outer (plaque) contours
     """
     markerChangedSignal = pyqtSignal(float)
     markerChangedKeySignal = pyqtSignal(object)
@@ -52,6 +243,7 @@ class LView(QGraphicsView):
 
         self.marker = Marker(self.lview_length, self.lview_height, self.lview_length)
         self.scene.addItem(self.marker)
+
         
     def keyPressEvent(self, event):
         """Key events."""
@@ -161,7 +353,8 @@ class LView(QGraphicsView):
             pathVessel2.setElementPositionAt(i, self.lview_plaqueY[i], self.lview_plaque2[i])
         self.pathVesselItem1.setPath(pathVessel1)        
         self.pathVesselItem2.setPath(pathVessel2)  
- 
+
+                    
 class Display(QGraphicsView):
     """Displays images and contours.
 
@@ -276,7 +469,7 @@ class Display(QGraphicsView):
                     
     def mouseReleaseEvent(self, event):
         print(f"Active item is {self.activeContour}")
-        if self.pointIdx is not None and self.activeContour != 3:
+        if self.pointIdx is not None and self.activeContour != 3 and self.activeContour != 0:
             contour_scaling_factor = self.display_size/self.imsize[1]
             item = self.activePoint
             item.resetColor()
