@@ -79,7 +79,7 @@ class LViewData():
         lview_array = np.transpose(lview_array, (1, 0)).copy()
         if 135 <= self.current_angle <= 315:
             lview_array = np.flipud(lview_array).copy()
-        # after grabbing slider it crashes   
+
         return lview_array
         
 class Communicate(QObject):
@@ -563,14 +563,9 @@ class Master(QMainWindow):
             lview_array = self.lview_data.update(self.images, self.current_angle)
 
             # lview
-            image=QImage(lview_array.data, lview_array.shape[1], lview_array.shape[0],  QImage.Format_Grayscale8).scaled(self.lview_length, self.lview_height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) 
-            pixmap = QPixmap.fromImage(image)
-            lview_image = QGraphicsPixmapItem(pixmap)
-
             self.lview.createScene(lview_array)
             
             self.slider.setValue(self.numberOfFrames-1)
-
 
             self.contoursButton.setEnabled(True)        
             self.gatingButton.setEnabled(True)        

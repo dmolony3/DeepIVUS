@@ -67,7 +67,6 @@ class LesionView(QGraphicsView):
         lumen_polygon, plaque_polygon = self.createPolygon(lview_lumenY, lview_plaqueY, lview_lumen, lview_plaque)
         
         # L is grayscale
-        #image = Image.new('RGB', (self.lview_height, self.lview_length), (0, 0, 0))
         image = Image.new('RGB', (self.lview_height, self.lview_length), (128, 128, 128)) #gray
 
         ImageDraw.Draw(image).polygon(plaque_polygon, outline=1, fill=255)
@@ -236,7 +235,8 @@ class LView(QGraphicsView):
         # create marker for display current cross section in lview mode
         self.scene.clear()
         
-        image = QImage(lview_array.data, lview_array.shape[1], lview_array.shape[0],  QImage.Format_Grayscale8).scaled(self.lview_length, self.lview_height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) 
+        bytesPerLine = lview_array.shape[1]*1
+        image = QImage(lview_array.data, lview_array.shape[1], lview_array.shape[0], bytesPerLine, QImage.Format_Grayscale8).scaled(self.lview_length, self.lview_height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) 
         pixmap = QPixmap.fromImage(image)
         lview_image = QGraphicsPixmapItem(pixmap)
         self.pixmap = self.scene.addPixmap(pixmap) 
@@ -317,7 +317,8 @@ class LView(QGraphicsView):
         self.scene.addItem(self.pathVesselItem2)               
         
     def updateImage(self, lview_array):
-        image = QImage(lview_array.data, lview_array.shape[1], lview_array.shape[0],  QImage.Format_Grayscale8).scaled(self.lview_length, self.lview_height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) 
+        bytesPerLine = lview_array.shape[1]*1
+        image = QImage(lview_array.data, lview_array.shape[1], lview_array.shape[0], bytesPerLine, QImage.Format_Grayscale8).scaled(self.lview_length, self.lview_height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) 
         pixmap = QPixmap.fromImage(image)
         self.pixmap.setPixmap(pixmap)
         
