@@ -193,6 +193,9 @@ class LesionView(QGraphicsView):
         super(LesionView, self).mousePressEvent(event)
         pos = self.mapToScene(event.pos())
         
+        if self.marker is None:
+            return
+        
         mla_dist = pos.x() - self.mla_marker.line().x1()
         mpd_dist = pos.x() - self.mpb_marker.line().x1()
         if abs(mla_dist) < 5:
@@ -226,6 +229,7 @@ class LView(QGraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         
+        self.marker = None
         self.scene = QGraphicsScene(self)
         self.scene.setBackgroundBrush(Qt.black)
 
@@ -252,6 +256,9 @@ class LView(QGraphicsView):
     def mousePressEvent(self, event):
         super(LView, self).mousePressEvent(event)
 
+        if not self.marker:
+            return
+            
         pos = self.mapToScene(event.pos())
         
         dist = pos.x() - self.marker.line().x1()

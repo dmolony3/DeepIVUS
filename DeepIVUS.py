@@ -1,11 +1,11 @@
-from PyQt5.QtWidgets import (QMainWindow, QWidget, QSlider, QApplication, QHeaderView, QStyle, QFrame, QGraphicsView, QGraphicsScene, QGraphicsLineItem, QGraphicsPixmapItem, QGraphicsEllipseItem, QGraphicsPathItem,
-    QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox,  QLabel, QSizePolicy, QInputDialog, QErrorMessage, QMessageBox, QLineEdit, QFileDialog, QTableWidget, QTableWidgetItem)
+from PyQt5.QtWidgets import (QMainWindow, QWidget, QSlider, QApplication, QHeaderView, QStyle, QFrame, QGraphicsView, QGraphicsScene, QGraphicsLineItem, QGraphicsPixmapItem, QGraphicsEllipseItem, QGraphicsPathItem, QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox,  QLabel, QSizePolicy, QInputDialog, QErrorMessage, QMessageBox, QLineEdit, QFileDialog, QTableWidget, QTableWidgetItem)
 from PyQt5.QtCore import QObject, Qt, pyqtSignal, QSize, QTimer, QPointF
 from PyQt5.QtGui import QIcon, QFont, QPixmap, QImage, QPen, QColor, QPainterPath
 from IVUS_gating import IVUS_gating
 from IVUS_prediction import predict
-from write_xml import write_xml, get_contours, mask_image
+from write_xml import write_xml, get_contours, mask_image, write_project
 from display import Display, LView, LesionView
+from read_project import FileDialog
 from PIL import Image
 from itertools import groupby
 from operator import itemgetter
@@ -16,11 +16,13 @@ import subprocess
 import click
 
 
+
 class Settings():
     def __init__(self):
         self.autoSave = True
         self.lesion_length = 3
         self.lesion_merge_length = 1.5
+        self.projects_folder = os.path.join(os.path.dirname(os.path.realpath(__file__)), "Projects")
 
 class LViewData():
     """Creates an lview and returns the image"""
@@ -186,6 +188,8 @@ class Master(QMainWindow):
         self.lumen = ()
         self.plaque = ()
         self.settings = Settings()
+        if not os.path.isdir(self.settings.projects_folder):
+            os.makedirs(self.settings.projects_folder)
         self.initUI()
 
     def initUI(self):
@@ -204,12 +208,13 @@ class Master(QMainWindow):
         layout.addLayout(vbox1)
         layout.addLayout(vbox2)
 
+        self.projectButton = QPushButton('Read Project')
         self.dicomButton = QPushButton('Read DICOM')
         self.contoursButton = QPushButton('Read Contours')
         self.gatingButton = QPushButton('Extract Diastolic Frames')
         self.segmentButton = QPushButton('Segment')
         self.splineButton = QPushButton('Manual Contour')
-        self.writeButton = QPushButton('Write Contours')
+        self.writeButton = QPushButton('Write Project')
         self.reportButton = QPushButton('Write Report') 
         self.contoursButton.setEnabled(False)        
         self.gatingButton.setEnabled(False)        
@@ -218,12 +223,13 @@ class Master(QMainWindow):
         self.writeButton.setEnabled(False)        
         self.reportButton.setEnabled(False)        
 
+        self.projectButton.setToolTip("Reads both images and contours")
         self.dicomButton.setToolTip("Load images in .dcm format")
         self.contoursButton.setToolTip("Load saved contours in .xml format")
         self.gatingButton.setToolTip("Extract end diastolic images from pullback")
         self.segmentButton.setToolTip("Run deep learning based segmentation of lumen and plaque")
         self.splineButton.setToolTip("Manually draw new contour for lumen, plaque or stent")
-        self.writeButton.setToolTip("Save contours in .xml file")
+        self.writeButton.setToolTip("Save project")
         self.reportButton.setToolTip("Write report containing, lumen, plaque and vessel areas and plaque burden")
 
         self.info_lumen = QLabel()
@@ -284,13 +290,14 @@ class Master(QMainWindow):
         vbox2.addLayout(vbox2hbox4)
         vbox2.addLayout(vbox2hbox5)
 
+        self.projectButton.clicked.connect(self.readProject)
         self.dicomButton.clicked.connect(self.readDICOM)
         self.contoursButton.clicked.connect(self.readContours)
         self.segmentButton.clicked.connect(self.segment)
         self.splineButton.clicked.connect(self.newSpline)
         self.gatingButton.clicked.connect(self.gate)
         self.reportButton.clicked.connect(self.report)
-        self.writeButton.clicked.connect(lambda: self.writeContours())
+        self.writeButton.clicked.connect(lambda: self.writeProject())
 
         self.playButton = QPushButton()
         pixmapi1 = getattr(QStyle, 'SP_MediaPlay')
@@ -340,11 +347,12 @@ class Master(QMainWindow):
         #vbox2.addWidget(self.splineButton)
         #vbox2.addWidget(self.writeButton)
         #vbox2.addWidget(self.reportButton)
+        vbox2hbox2.addWidget(self.projectButton)
         vbox2hbox2.addWidget(self.dicomButton)
-        vbox2hbox2.addWidget(self.contoursButton)
-        vbox2hbox3.addWidget(self.gatingButton)
-        vbox2hbox3.addWidget(self.segmentButton)
-        vbox2hbox4.addWidget(self.splineButton)
+        vbox2hbox3.addWidget(self.contoursButton)
+        vbox2hbox3.addWidget(self.splineButton)
+        vbox2hbox4.addWidget(self.gatingButton)
+        vbox2hbox4.addWidget(self.segmentButton)
         vbox2hbox5.addWidget(self.writeButton)
         vbox2hbox5.addWidget(self.reportButton)
 
@@ -508,16 +516,46 @@ class Master(QMainWindow):
         #    self.images = np.ascontiguousarray(self.images)[:, :, :, 0]
         
 
-    def readDICOM(self):
+    def readProject(self):
+        """Reads project file.
+
+        Adds images and contours to the scene
+        """
+        dialog = FileDialog()
+        if dialog.exec():
+            fileName = dialog.getFileSelected()
+            if not any(fileName):
+                error = QMessageBox()
+                error.setIcon(QMessageBox.Critical)
+                error.setWindowTitle("Error")
+                error.setModal(True)
+                error.setWindowModality(Qt.WindowModal)
+                error.setText("File is not a valid project file and could not be loaded")
+                error.exec_()
+                return
+            dicomPath = fileName['dicom']
+            contoursPath = fileName['contours']
+            self.dicomPath = dicomPath
+            self.processDICOM(dicomPath)
+            self.processContours(contoursPath)
+             
+        
+    def readDICOM(self):  
+        """Opens file dialog to select dicom file"""
+
+        options=QFileDialog.Options()
+        options = QFileDialog.DontUseNativeDialog
+        fileName, _ = QFileDialog.getOpenFileName(self, "QFileDialog.getOpenFileName()", "", "DICOM files (*.dcm);;All files (*)", options=options)
+        self.dicomPath = fileName
+        
+        self.processDICOM(fileName)
+        
+    def processDICOM(self, fileName=None):
         """Reads DICOM images.
 
         Reads the dicom images and metadata. Places metatdata in a table.
         Images are displayed in the graphics scene.
         """
-
-        options=QFileDialog.Options()
-        options = QFileDialog.DontUseNativeDialog
-        fileName, _ = QFileDialog.getOpenFileName(self, "QFileDialog.getOpenFileName()", "", "DICOM files (*.dcm);;All files (*)", options=options)
 
         if fileName:
             try :
@@ -572,14 +610,6 @@ class Master(QMainWindow):
             self.segmentButton.setEnabled(True)        
             self.splineButton.setEnabled(True)        
 
-        
-    def angle3pt(self, a, b, c):
-        """Counterclockwise angle in degrees by turning from a to c around b
-        Returns a float between 0.0 and 360.0"""
-        ang = np.arctan2(c[1] - b[1], c[0] - b[0]) - np.arctan2(a[1] - b[1], a[0] - b[0])
-        ang = np.rad2deg(ang)
-        return ang + 360 if ang < 0 else ang
-    
     def readContours(self):
         """Reads contours.
 
@@ -597,42 +627,45 @@ class Master(QMainWindow):
             options |= QFileDialog.DontUseNativeDialog
             fileName, _ = QFileDialog.getOpenFileName(self, "QFileDialog.getOpenFileName()", "", "XML file (*.xml)", options=options)
             if fileName:
-                self.lumen, self.plaque, self.stent, self.resolution, frames = read_xml.read(fileName)
-                if len(self.lumen[0]) != self.dicom.NumberOfFrames:
-                    warning = QErrorMessage()
-                    warning.setWindowModality(Qt.WindowModal)
-                    warning.showMessage('Reading of contours failed. File must contain the same number of frames as loaded dicom')
-                    warning.exec_()
-                else:
-                    self.resolution = float(self.resolution[0])
-                    self.lumen = self.mapToList(self.lumen)
-                    self.plaque = self.mapToList(self.plaque)
-                    self.stent = self.mapToList(self.stent)
-                    self.contours=True
-                    self.wid.setData(self.lumen, self.plaque, self.stent, self.images)
-                    self.hideBox.setChecked(False)
+                self.processContours(fileName)
 
-                    gatedFrames = [frame for frame in range(len(self.lumen[0])) if self.lumen[0][frame] or self.plaque[0][frame]]
-                    self.gatedFrames = gatedFrames
-                    self.useGatedBox.setChecked(True)
-                    self.slider.addGatedFrames(self.gatedFrames)
+    def processContours(self, fileName):
+        self.lumen, self.plaque, self.stent, self.resolution, frames = read_xml.read(fileName)
+        if len(self.lumen[0]) != self.dicom.NumberOfFrames:
+            warning = QErrorMessage()
+            warning.setWindowModality(Qt.WindowModal)
+            warning.showMessage('Reading of contours failed. File must contain the same number of frames as loaded dicom')
+            warning.exec_()
+        else:
+            self.resolution = float(self.resolution[0])
+            self.lumen = self.mapToList(self.lumen)
+            self.plaque = self.mapToList(self.plaque)
+            self.stent = self.mapToList(self.stent)
+            self.contours=True
+            self.wid.setData(self.lumen, self.plaque, self.stent, self.images)
+            self.hideBox.setChecked(False)
 
-                    self.metrics = self.computeContourMetrics(self.lumen, self.plaque)
-                    lumen_area, plaque_area, plaque_burden = self.metrics
-                    self.updateAreaDisplay(lumen_area, plaque_area, plaque_burden, self.slider.value())
+            gatedFrames = [frame for frame in range(len(self.lumen[0])) if self.lumen[0][frame] or self.plaque[0][frame]]
+            self.gatedFrames = gatedFrames
+            self.useGatedBox.setChecked(True)
+            self.slider.addGatedFrames(self.gatedFrames)
+
+            self.metrics = self.computeContourMetrics(self.lumen, self.plaque)
+            lumen_area, plaque_area, plaque_burden = self.metrics
+            self.updateAreaDisplay(lumen_area, plaque_area, plaque_burden, self.slider.value())
+    
+            self.lview_lumenY = [self.lview_length*(frame/self.numberOfFrames) for frame in self.gatedFrames]
+            self.lview_plaqueY = [self.lview_length*(frame/self.numberOfFrames) for frame in self.gatedFrames]
+            self.lview_lumen, self.lview_lumen1, self.lview_lumen2 = self.getLviewCoordinates(self.lumen)
+            self.lview_plaque, self.lview_plaque1, self.lview_plaque2 = self.getLviewCoordinates(self.plaque)
+            self.lview.createLViewContours(self.lview_lumenY, self.lview_plaqueY, self.lview_lumen1, self.lview_lumen2, self.lview_plaque1, self.lview_plaque2)
             
-                    self.lview_lumenY = [self.lview_length*(frame/self.numberOfFrames) for frame in self.gatedFrames]
-                    self.lview_plaqueY = [self.lview_length*(frame/self.numberOfFrames) for frame in self.gatedFrames]
-                    self.lview_lumen, self.lview_lumen1, self.lview_lumen2 = self.getLviewCoordinates(self.lumen)
-                    self.lview_plaque, self.lview_plaque1, self.lview_plaque2 = self.getLviewCoordinates(self.plaque)
-                    self.lview.createLViewContours(self.lview_lumenY, self.lview_plaqueY, self.lview_lumen1, self.lview_lumen2, self.lview_plaque1, self.lview_plaque2)
-                    
-                    self.lesion_info = self.lesion_analysis(lumen_area, plaque_area, plaque_burden)
-                    self.lesionView.setNumberOfFrames(self.numberOfFrames)
-                    self.lesionView.createScene(self.lview_lumenY, self.lview_plaqueY, self.lview_lumen, self.lview_plaque, self.lesion_info, self.lview_length)
+            self.lesion_info = self.lesion_analysis(lumen_area, plaque_area, plaque_burden)
+            self.lesionView.setNumberOfFrames(self.numberOfFrames)
+            self.lesionView.createScene(self.lview_lumenY, self.lview_plaqueY, self.lview_lumen, self.lview_plaque, self.lesion_info, self.lview_length)
             self.reportButton.setEnabled(True) 
             self.writeButton.setEnabled(True)
-
+    
     def lesion_analysis(self, lumen_area, plaque_area, plaque_burden):
         """identifies which frames are part of a lesion where lesion is defined 
         as >=3 frames wiht plaque burden >40%
@@ -711,6 +744,37 @@ class Master(QMainWindow):
                 self.text.setText("Frame {}".format(frame))     
 
         self.playButton.setIcon(self.playIcon)        
+
+    def writeProject(self, fname=None):
+        """Writes project file as an xml file"""
+        patientName = self.infoTable.item(0, 1).text()
+        saveName = patientName if fname is None else fname
+        lviewPath = os.path.join(self.settings.projects_folder, saveName + '.png')
+        contourPath = os.path.join(self.settings.projects_folder, saveName + '_contours.xml')
+        projectPath = os.path.join(self.settings.projects_folder, saveName + '.proj')
+        
+        lumen_area, plaque_area, plaque_burden = self.metrics
+        lumen_volume = self.computeVolume(lumen_area)
+        plaque_volume = self.computeVolume(plaque_area)
+        
+        project_info = {}
+        project_info['name'] = patientName
+        project_info['lumenvolume'] = str(round(lumen_volume))
+        project_info['plaquevolume'] = str(round(plaque_volume))
+        project_info['minimumlumenarea'] = str(round(np.min(lumen_area[np.nonzero(lumen_area)]), 2))
+        project_info['dicompath'] = self.dicomPath
+        project_info['contourpath'] = contourPath
+        project_info['previewpath'] = lviewPath
+
+        self.writeContours(os.path.join(self.settings.projects_folder, saveName))
+        
+        midslice = self.images.shape[1]//2
+        lview = np.transpose(self.images[:, midslice, :], [1, 0])
+        image = Image.fromarray(lview)
+        image.save(lviewPath)
+        
+        write_project(project_info, projectPath)
+        self.successMessage('Writing project')
 
     def writeContours(self, fname=None):
         """Writes contours to an xml file compatible with Echoplaque"""
@@ -904,6 +968,18 @@ class Master(QMainWindow):
         area = 0.5*np.abs(np.dot(x,np.roll(y,1))-np.dot(y,np.roll(x,1)))
 
         return area
+        
+    def computeVolume(self, areas):
+        """Calculate volume of contoured region using trapezoid formula"""
+
+        volume = 0
+        for i in range(len(self.gatedFrames) - 1):
+            base1 = areas[self.gatedFrames[i]]
+            base2 = areas[self.gatedFrames[i + 1]]
+            height = self.pullbackLength[self.gatedFrames[i + 1]] - self.pullbackLength[self.gatedFrames[i]]
+            volume += ((base1 + base2) / 2) * height
+        return volume
+	
 
     def computeContourMetrics(self, lumen, plaque):
         """Computes lumen area, plaque area and plaque burden from contours"""
@@ -999,6 +1075,14 @@ class Master(QMainWindow):
                 lviewX2.append(self.lview_height//2 + rho[angle_idx2]/(radius_normalizing_value)*(self.lview_height//2))
         return lviewX, lviewX1, lviewX2
         
+        
+    def angle3pt(self, a, b, c):
+        """Counterclockwise angle in degrees by turning from a to c around b
+        Returns a float between 0.0 and 360.0"""
+        ang = np.arctan2(c[1] - b[1], c[0] - b[0]) - np.arctan2(a[1] - b[1], a[0] - b[0])
+        ang = np.rad2deg(ang)
+        return ang + 360 if ang < 0 else ang
+    
     def updateLview(self, x1, y1, x2, y2):
         """this is triggered if the lview is changed via the crossbar"""
         if not self.image:

@@ -8,6 +8,29 @@ import PIL.Image as im
 import matplotlib.path as mplPath
 from skimage import measure
 
+
+def write_project(project_info, project_path):
+    root = et.Element('DeepIVUSProject')
+    pname = et.SubElement(root, 'name')
+    pname.text = project_info["name"]
+    dicompath = et.SubElement(root, 'dicompath')
+    dicompath.text =  project_info["dicompath"]
+    contourspath = et.SubElement(root, 'contourpath')
+    contourspath.text = project_info['contourpath']
+    previewpath = et.SubElement(root, 'previewpath')
+    previewpath.text = project_info['previewpath']
+        
+    measurements = et.SubElement(root, 'measurements')
+    lumenvolume = et.SubElement(measurements, 'lumenvolume')
+    lumenvolume.text = project_info["lumenvolume"]
+    plaquevolume = et.SubElement(measurements, 'plaquevolume')
+    plaquevolume.text = project_info["plaquevolume"]
+    minimumlumenarea = et.SubElement(measurements, 'minimumlumenarea')
+    minimumlumenarea.text = project_info["minimumlumenarea"]
+    
+    tree = et.ElementTree(root)
+    tree.write(project_path, encoding = "UTF-8", xml_declaration = True)
+
 # read images
 def mask_image(mask, catheter):
     # mask values outside perivascular as the image max
