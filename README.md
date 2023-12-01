@@ -5,11 +5,16 @@
 <p>
 <h3 align="center">A Platform for Coronary Artery Intravascular Ultrasound Segmentation and Analysis </h3>
 
-**DeepIVUS** is a platform for deep learning based segmentation of coronary artery Intravascular Ultrasound (IVUS) images. The platform consists of a graphical user interface and serves to provide the following capabilities. 
+[![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](https://opensource.org/licenses/Apache-2.0)
+![GitHub tag (with filter)](https://img.shields.io/github/v/tag/dmolony3/DeepIVUS)
+
+
+**DeepIVUS** is a platform for deep learning based segmentation and analysis of coronary artery Intravascular Ultrasound (IVUS) images. The platform consists of a graphical user interface and serves to provide the following capabilities. 
 
 * Viewer of IVUS pullbacks
 * End diastolic gating of IVUS pullbacks
 * Segmentation of internal and external elastic lamina
+* Automated lesion analysis
 * Phenotyping of IVUS pullbacks
 * Generation of IVUS pullback report
 
@@ -69,7 +74,7 @@ DeepIVUS gui
 ```
 
 ## Reading and Display IVUS pullbacks
-IVUS pullbacks in DICOM (.dcm) format can be loaded. Contours are stored in a .xml format and can be loaded for display.
+IVUS pullbacks in DICOM (.dcm) format can be loaded. Contours are stored in a .xml format and can be loaded for display. Alternatively reading a project file (.proj) will simultaneously read in the images and contours. Images are displayed in the cross-sectional view as well as the longitudinal view. The longitudinal view can be manipulated by rotating the marker in the cross-sectional view.
 
 ![Alt Text](/Media/GUI.gif)
 
@@ -91,6 +96,11 @@ Contours can be manually edited by dragging anchor points.
 Contours can also be drawn from scratch by pressing the *Manual Contour* button
 
 ![Manual Segmentation](/Media/Manual_Segmentation.gif)
+
+## Automated lesion analysis
+After contours have been loaded or generated from segmentation lesion analysis is automatically performed. Areas of plaque burden > 40% are identified as lesions. The schematic view provides a quick visual assessment of lumen and plaque area over the entire vessel. Critical info including lesion length, minimum lumen area (MlA) and maximum plaque burden (MPB) are highlighted within this view. Clicking on the MLA or MPB will display the associated image in the cross-sectional view.
+
+![Lesion Analysis](/Media/Lesion_analysis.gif)
 
 ## Report Generation
 A report in the form of a text file can be generated for each frame in the pullback by pressing *Write Report*. If *Gated Frames* is checked then the report will only include the end-diastolic images. The report consists of the following variables:  
