@@ -687,7 +687,7 @@ class Master(QMainWindow):
                     result.append((k, list(map(itemgetter(0), group))))
                     
         num_lesions = len(result)
-    
+        print(f"Detected {num_lesions} number of initial lesions")
         lesion_info = []
         for i in range(num_lesions):
             lesion = {}
@@ -697,7 +697,6 @@ class Master(QMainWindow):
             lesion['MPB idx'] = self.gatedFrames[result[i][1][0] + plaque_burden[result[i][1]].argmax()]
             lesion_length = self.pullbackLength[self.gatedFrames[result[i][1][-1]]] - self.pullbackLength[self.gatedFrames[result[i][1][0]]]
             lesion['length'] = lesion_length
-            
             
             # merge lesions that are within n mm of each other
             if i == 0:
@@ -716,14 +715,20 @@ class Master(QMainWindow):
                     lesion_length = self.pullbackLength[self.gatedFrames[frame_idx[-1]]] - self.pullbackLength[self.gatedFrames[frame_idx[0]]]
                     lesion['length'] = lesion_length    
                     lesion_info[-1] = lesion
+                else:
+                    lesion_info.append(lesion)
 
+        print(f"Detected {len(lesion_info)} number of merged lesions")
+
+        final_lesion_info = []
         # remove any lesions that are less than minimum lesion length
         for i in range(len(lesion_info)):
-            if lesion_info[i]['length'] < self.settings.lesion_length:
-                lesion_info.pop(i)
+            if lesion_info[i]['length'] >= self.settings.lesion_length:
+                final_lesion_info.append(lesion_info[i])
+            else:
                 print(f"Removed lesion {i} of {lesion_info[i]['length']} mm length")
 
-        return lesion_info        
+        return final_lesion_info        
             
     def play(self):
         "Plays all frames until end of pullback starting from currently selected frame"""
