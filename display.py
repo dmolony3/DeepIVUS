@@ -25,6 +25,7 @@ class LesionView(QGraphicsView):
         
         self.pos = self.lview_length
         self.marker = None
+        self.mla_maker = None
         self.scene = QGraphicsScene(self)
         self.scene.setBackgroundBrush(Qt.black)
 
@@ -32,30 +33,35 @@ class LesionView(QGraphicsView):
         
     def createPolygon(self, lview_lumenY, lview_plaqueY, lview_lumen, lview_plaque):
         """Updates the lview"""
-        #print(lview_lumenY)
+        print('poly', len(lview_lumenY), len(lview_lumen))
         lview_lumen1, lview_lumen2 = [], []
         lview_plaque1, lview_plaque2 = [], []
+        lview_lumenY1, lview_plaqueY1 = [], []
         for i in range(len(lview_lumen)):
-            lview_lumen1.append(self.lview_height//2 - lview_lumen[i]*(self.lview_height//2))
-            lview_lumen2.append(self.lview_height//2 + lview_lumen[i]*(self.lview_height//2))
-
+            if lview_lumen[i] is not None:
+                lview_lumen1.append(self.lview_height//2 - lview_lumen[i]*(self.lview_height//2))
+                lview_lumen2.append(self.lview_height//2 + lview_lumen[i]*(self.lview_height//2))
+                lview_lumenY1.append(lview_lumenY[i])
+                
         for i in range(len(lview_plaque)):
-            lview_plaque1.append(self.lview_height//2 - lview_plaque[i]*(self.lview_height//2))
-            lview_plaque2.append(self.lview_height//2 + lview_plaque[i]*(self.lview_height//2))
+            if lview_plaque[i] is not None:
+                lview_plaque1.append(self.lview_height//2 - lview_plaque[i]*(self.lview_height//2))
+                lview_plaque2.append(self.lview_height//2 + lview_plaque[i]*(self.lview_height//2))
+                lview_plaqueY1.append(lview_plaqueY[i])
 
         lumen_polygon = []
         plaque_polygon = []
         for i in range(len(lview_lumen1)):
-            lumen_polygon.append((int(lview_lumen1[i]), int(lview_lumenY[i])))
+            lumen_polygon.append((int(lview_lumen1[i]), int(lview_lumenY1[i])))
             
         for i in reversed(range(len(lview_lumen2))):
-            lumen_polygon.append((int(lview_lumen2[i]), int(lview_lumenY[i])))
+            lumen_polygon.append((int(lview_lumen2[i]), int(lview_lumenY1[i])))
             
         for i in range(len(lview_plaque1)):
-            plaque_polygon.append((int(lview_plaque1[i]), int(lview_lumenY[i])))
+            plaque_polygon.append((int(lview_plaque1[i]), int(lview_plaqueY1[i])))
             
         for i in reversed(range(len(lview_plaque2))):
-            plaque_polygon.append((int(lview_plaque2[i]), int(lview_lumenY[i])))
+            plaque_polygon.append((int(lview_plaque2[i]), int(lview_plaqueY1[i])))
             
         self.lview_lumenY = lview_lumenY
         self.lview_plaqueY = lview_plaqueY
@@ -65,6 +71,8 @@ class LesionView(QGraphicsView):
     def createImage(self, lview_lumenY, lview_plaqueY, lview_lumen, lview_plaque):
         """creates a cartoon image of lumen area"""
         lumen_polygon, plaque_polygon = self.createPolygon(lview_lumenY, lview_plaqueY, lview_lumen, lview_plaque)
+        print(lumen_polygon)
+        print(plaque_polygon)
         
         # L is grayscale
         image = Image.new('RGB', (self.lview_height, self.lview_length), (128, 128, 128)) #gray
@@ -291,16 +299,21 @@ class LView(QGraphicsView):
         self.pathLumenItem2 = QGraphicsPathItem()
         self.pathLumenItem2.setPen(QPen(Qt.red, 2))
 
-        l1 = QPointF(self.lview_lumenY[0], self.lview_lumen1[0])
-        l2 = QPointF(self.lview_lumenY[0], self.lview_lumen2[0])
-        pathLumen1 = QPainterPath(l1)
-        pathLumen2 = QPainterPath(l2)
-        for i in range(0, len(self.lview_lumenY)):
-            #path1.lineTo(self.lviewX1[i], self.lviewY[i])
-            pathLumen1.lineTo(self.lview_lumenY[i], self.lview_lumen1[i])
-            pathLumen2.lineTo(self.lview_lumenY[i], self.lview_lumen2[i])
-        self.pathLumenItem1.setPath(pathLumen1)
-        self.pathLumenItem2.setPath(pathLumen2)
+        if self.lview_lumen1:
+            first_idx = min([i for i in range(len(self.lview_lumen1)) if self.lview_lumen1[i] is not None])            
+            l1 = QPointF(self.lview_lumenY[first_idx], self.lview_lumen1[first_idx])
+            l2 = QPointF(self.lview_lumenY[first_idx], self.lview_lumen2[first_idx])
+            pathLumen1 = QPainterPath(l1)
+            pathLumen2 = QPainterPath(l2)
+            for i in range(first_idx, len(self.lview_lumen1)):
+                #path1.lineTo(self.lviewX1[i], self.lviewY[i])
+                if self.lview_lumen1[i] is None:
+                    continue
+                pathLumen1.lineTo(self.lview_lumenY[i], self.lview_lumen1[i])
+                pathLumen2.lineTo(self.lview_lumenY[i], self.lview_lumen2[i])
+                print("LLL", pathLumen1.currentPosition().x(), pathLumen1.currentPosition().y())
+            self.pathLumenItem1.setPath(pathLumen1)
+            self.pathLumenItem2.setPath(pathLumen2)
         self.scene.addItem(self.pathLumenItem1)
         self.scene.addItem(self.pathLumenItem2)
 
@@ -310,19 +323,24 @@ class LView(QGraphicsView):
         self.pathVesselItem2 = QGraphicsPathItem()
         self.pathVesselItem2.setPen(QPen(Qt.yellow, 2))
 
-        v1 = QPointF(self.lview_plaqueY[0], self.lview_plaque1[0])
-        v2 = QPointF(self.lview_plaqueY[0], self.lview_plaque2[0])
-        pathVessel1 = QPainterPath(v1)
-        pathVessel2 = QPainterPath(v2)
-        for i in range(0, len(self.lview_plaqueY)):
-            #path1.lineTo(self.lviewX1[i], self.lviewY[i])
-            pathVessel1.lineTo(self.lview_plaqueY[i], self.lview_plaque1[i])
-            pathVessel2.lineTo(self.lview_plaqueY[i], self.lview_plaque2[i])
-        self.pathVesselItem1.setPath(pathVessel1)
-        self.pathVesselItem2.setPath(pathVessel2)
-        self.scene.addItem(self.pathVesselItem1)
-        self.scene.addItem(self.pathVesselItem2)               
-        
+        if self.lview_plaque1:
+            first_idx = min([i for i in range(len(self.lview_plaque1)) if self.lview_plaque1[i] is not None])
+            v1 = QPointF(self.lview_plaqueY[first_idx], self.lview_plaque1[first_idx])
+            v2 = QPointF(self.lview_plaqueY[first_idx], self.lview_plaque2[first_idx])
+            pathVessel1 = QPainterPath(v1)
+            pathVessel2 = QPainterPath(v2)
+            print('fffff', len(self.lview_plaqueY), self.lview_plaqueY[0], len(self.lview_plaque1))
+            for i in range(first_idx, len(self.lview_plaque1)):
+                    #path1.lineTo(self.lviewX1[i], self.lviewY[i])
+                if self.lview_plaque1[i] is None:
+                    continue
+                pathVessel1.lineTo(self.lview_plaqueY[i], self.lview_plaque1[i])
+                pathVessel2.lineTo(self.lview_plaqueY[i], self.lview_plaque2[i])
+            self.pathVesselItem1.setPath(pathVessel1)
+            self.pathVesselItem2.setPath(pathVessel2)
+            self.scene.addItem(self.pathVesselItem1)
+            self.scene.addItem(self.pathVesselItem2)               
+            
     def updateImage(self, lview_array):
         bytesPerLine = lview_array.shape[1]*1
         image = QImage(lview_array.data, lview_array.shape[1], lview_array.shape[0], bytesPerLine, QImage.Format_Grayscale8).scaled(self.lview_length, self.lview_height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation) 
@@ -350,15 +368,28 @@ class LView(QGraphicsView):
         pathVessel1 = self.pathVesselItem1.path()
         pathVessel2 = self.pathVesselItem2.path()
 
+        idx = 0
+        print(len(self.lview_lumenY), len(self.lview_lumen1), pathLumen1.elementCount())
         for i in range(len(self.lview_lumen1)):
-            pathLumen1.setElementPositionAt(i, self.lview_lumenY[i], self.lview_lumen1[i])
-            pathLumen2.setElementPositionAt(i, self.lview_lumenY[i], self.lview_lumen2[i])
+            if self.lview_lumen1[i] is None:
+                continue
+            print(i, idx, 'l', pathLumen1.elementAt(idx).x, 'l',pathLumen1.elementAt(idx).y)
+            pathLumen1.setElementPositionAt(idx, self.lview_lumenY[i], self.lview_lumen1[i])
+            pathLumen2.setElementPositionAt(idx, self.lview_lumenY[i], self.lview_lumen2[i])
+            print(i, idx, 'l', lview_lumenY[i], pathLumen1.elementAt(idx).x, 'l',pathLumen1.elementAt(idx).y)
+            idx += 1
         self.pathLumenItem1.setPath(pathLumen1)        
         self.pathLumenItem2.setPath(pathLumen2)  
 
+        idx = 0
+        print(len(self.lview_plaqueY), len(self.lview_plaque1), pathVessel1.elementCount())
         for i in range(len(self.lview_plaque1)):
-            pathVessel1.setElementPositionAt(i, self.lview_plaqueY[i], self.lview_plaque1[i])
-            pathVessel2.setElementPositionAt(i, self.lview_plaqueY[i], self.lview_plaque2[i])
+            if self.lview_plaque1[i] is None:
+                continue
+            print(i, idx ,'p',pathVessel1.elementAt(idx).x, 'p',pathVessel1.elementAt(idx).y)
+            pathVessel1.setElementPositionAt(idx, self.lview_plaqueY[i], self.lview_plaque1[i])
+            pathVessel2.setElementPositionAt(idx, self.lview_plaqueY[i], self.lview_plaque2[i])
+            idx += 1
         self.pathVesselItem1.setPath(pathVessel1)        
         self.pathVesselItem2.setPath(pathVessel2)  
 

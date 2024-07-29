@@ -654,12 +654,12 @@ class Master(QMainWindow):
             lumen_area, plaque_area, plaque_burden = self.metrics
             self.updateAreaDisplay(lumen_area, plaque_area, plaque_burden, self.slider.value())
     
-            self.lview_lumenY = [self.lview_length*(frame/self.numberOfFrames) for frame in self.gatedFrames]
-            self.lview_plaqueY = [self.lview_length*(frame/self.numberOfFrames) for frame in self.gatedFrames]
+            self.lview_lumenY = [self.lview_length*(frame/self.numberOfFrames) for frame in range(self.numberOfFrames)]
+            self.lview_plaqueY = [self.lview_length*(frame/self.numberOfFrames) for frame in range(self.numberOfFrames)]
             self.lview_lumen, self.lview_lumen1, self.lview_lumen2 = self.getLviewCoordinates(self.lumen)
             self.lview_plaque, self.lview_plaque1, self.lview_plaque2 = self.getLviewCoordinates(self.plaque)
             self.lview.createLViewContours(self.lview_lumenY, self.lview_plaqueY, self.lview_lumen1, self.lview_lumen2, self.lview_plaque1, self.lview_plaque2)
-            
+                   
             self.lesion_info = self.lesion_analysis(lumen_area, plaque_area, plaque_burden)
             self.lesionView.setNumberOfFrames(self.numberOfFrames)
             self.lesionView.createScene(self.lview_lumenY, self.lview_plaqueY, self.lview_lumen, self.lview_plaque, self.lesion_info, self.lview_length)
@@ -913,8 +913,8 @@ class Master(QMainWindow):
         plaque_frames = [i for i in range(len(self.plaque[0])) if self.plaque[0][i]]
 
 
-        self.lview_lumenY = [self.lview_length*(frame/self.numberOfFrames) for frame in lumen_frames]
-        self.lview_plaqueY = [self.lview_length*(frame/self.numberOfFrames) for frame in plaque_frames]
+        self.lview_lumenY = [self.lview_length*(frame/self.numberOfFrames) for frame in range(self.numberOfFrames)]
+        self.lview_plaqueY = [self.lview_length*(frame/self.numberOfFrames) for frame in range(self.numberOfFrames)]
         self.lview_lumen, self.lview_lumen1, self.lview_lumen2 = self.getLviewCoordinates(self.lumen)
         self.lview_plaque, self.lview_plaque1, self.lview_plaque2 = self.getLviewCoordinates(self.plaque)
         self.lview.createLViewContours(self.lview_lumenY, self.lview_plaqueY, self.lview_lumen1, self.lview_lumen2, self.lview_plaque1, self.lview_plaque2)
@@ -1078,6 +1078,10 @@ class Master(QMainWindow):
                 
                 lviewX1.append(self.lview_height//2 - rho[angle_idx1]/(radius_normalizing_value)*(self.lview_height//2))
                 lviewX2.append(self.lview_height//2 + rho[angle_idx2]/(radius_normalizing_value)*(self.lview_height//2))
+            else:
+                lviewX.append(None)
+                lviewX1.append(None)
+                lviewX2.append(None)
         return lviewX, lviewX1, lviewX2
         
         
@@ -1119,8 +1123,10 @@ class Master(QMainWindow):
         plaque_frames = [i for i in range(len(self.plaque[0])) if self.plaque[0][i]]
 
         if self.contours:
-            self.lview_lumenY = [self.lview_length*(frame/self.numberOfFrames) for frame in lumen_frames]
-            self.lview_plaqueY = [self.lview_length*(frame/self.numberOfFrames) for frame in plaque_frames]
+            self.lview_lumenY = [self.lview_length*(frame/self.numberOfFrames) if frame in lumen_frames else None for frame in range(self.numberOfFrames)]
+            #self.lview_plaqueY = [self.lview_length*(frame/self.numberOfFrames) for frame in plaque_frames]
+            self.lview_plaqueY = [self.lview_length*(frame/self.numberOfFrames) if frame in plaque_frames else None for frame in range(self.numberOfFrames)]
+
             self.lview_lumen, self.lview_lumen1, self.lview_lumen2 = self.getLviewCoordinates(self.lumen)
             self.lview_plaque, self.lview_plaque1, self.lview_plaque2 = self.getLviewCoordinates(self.plaque)
             self.lview.updateLViewContours(self.lview_lumenY, self.lview_plaqueY, self.lview_lumen1, self.lview_lumen2, self.lview_plaque1, self.lview_plaque2)
@@ -1134,11 +1140,16 @@ class Master(QMainWindow):
            
             lumen_frames = [i for i in range(len(self.lumen[0])) if self.lumen[0][i]]
             plaque_frames = [i for i in range(len(self.plaque[0])) if self.plaque[0][i]]
-            
+            print('lumen_frames', lumen_frames)
+            print('plaque_frames', plaque_frames)
             # add changing coordinates when lview is changed
-            self.lview_lumenY = [self.lview_length*(frame/self.numberOfFrames) for frame in lumen_frames]
-            self.lview_plaqueY = [self.lview_length*(frame/self.numberOfFrames) for frame in plaque_frames]
+            #self.lview_lumenY = [self.lview_length*(frame/self.numberOfFrames) for frame in lumen_frames]
+            self.lview_lumenY = [self.lview_length*(frame/self.numberOfFrames) if frame in lumen_frames else None for frame in range(self.numberOfFrames)]
+            #self.lview_plaqueY = [self.lview_length*(frame/self.numberOfFrames) for frame in plaque_frames]
+            self.lview_plaqueY = [self.lview_length*(frame/self.numberOfFrames) if frame in plaque_frames else None for frame in range(self.numberOfFrames)]
+            print(self.lview_lumenY)
             self.lview_lumen, self.lview_lumen1, self.lview_lumen2 = self.getLviewCoordinates(self.lumen)
+            print(self.lview_lumen1)
             self.lview_plaque, self.lview_plaque1, self.lview_plaque2 = self.getLviewCoordinates(self.plaque)
             self.lview.updateLViewContours(self.lview_lumenY, self.lview_plaqueY, self.lview_lumen1, self.lview_lumen2, self.lview_plaque1, self.lview_plaque2)
             
