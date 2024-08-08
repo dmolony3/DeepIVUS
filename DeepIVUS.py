@@ -448,18 +448,18 @@ class Master(QMainWindow):
     def parseDICOM(self):
         """Parses DICOM metadata"""
 
-        if (len(self.dicom.PatientName.encode('ascii')) > 0):
+        if self.dicom.get('PatientName'):
             self.patientName = self.dicom.PatientName.original_string.decode('utf-8').replace("^", " ").strip()
             print(self.patientName)
         else:
             self.patientName = 'Unknown'
 
-        if len(self.dicom.PatientBirthDate) > 0:
+        if self.dicom.get('PatientBirthDate'):
             self.patientBirthDate = self.dicom.PatientBirthDate
         else:
             self.patientBirthDate = 'Unknown'
 
-        if len(self.dicom.PatientSex) > 0:
+        if self.dicom.get('PatientSex'):
             self.patientSex = self.dicom.PatientSex
         else:
             self.patientSex = 'Unknown'
