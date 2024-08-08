@@ -77,8 +77,10 @@ class LesionView(QGraphicsView):
         # L is grayscale
         image = Image.new('RGB', (self.lview_height, self.lview_length), (128, 128, 128)) #gray
 
-        ImageDraw.Draw(image).polygon(plaque_polygon, outline=1, fill=255)
-        ImageDraw.Draw(image).polygon(lumen_polygon, outline=1, fill=1)
+        if plaque_polygon:
+            ImageDraw.Draw(image).polygon(plaque_polygon, outline=1, fill=255)
+        if lumen_polygon:
+            ImageDraw.Draw(image).polygon(lumen_polygon, outline=1, fill=1)
         image = np.transpose(np.array(image), [1, 0, 2]).copy()
 
         return image
@@ -299,8 +301,9 @@ class LView(QGraphicsView):
         self.pathLumenItem2 = QGraphicsPathItem()
         self.pathLumenItem2.setPen(QPen(Qt.red, 2))
 
-        if self.lview_lumen1:
-            first_idx = min([i for i in range(len(self.lview_lumen1)) if self.lview_lumen1[i] is not None])            
+        contour_frames = [i for i in range(len(self.lview_lumen1)) if self.lview_lumen1[i] is not None]
+        if contour_frames:
+            first_idx = min(contour_frames)
             l1 = QPointF(self.lview_lumenY[first_idx], self.lview_lumen1[first_idx])
             l2 = QPointF(self.lview_lumenY[first_idx], self.lview_lumen2[first_idx])
             pathLumen1 = QPainterPath(l1)
@@ -311,11 +314,10 @@ class LView(QGraphicsView):
                     continue
                 pathLumen1.lineTo(self.lview_lumenY[i], self.lview_lumen1[i])
                 pathLumen2.lineTo(self.lview_lumenY[i], self.lview_lumen2[i])
-                print("LLL", pathLumen1.currentPosition().x(), pathLumen1.currentPosition().y())
             self.pathLumenItem1.setPath(pathLumen1)
             self.pathLumenItem2.setPath(pathLumen2)
-        self.scene.addItem(self.pathLumenItem1)
-        self.scene.addItem(self.pathLumenItem2)
+            self.scene.addItem(self.pathLumenItem1)
+            self.scene.addItem(self.pathLumenItem2)
 
         # create path for vessel
         self.pathVesselItem1 = QGraphicsPathItem()
@@ -323,13 +325,13 @@ class LView(QGraphicsView):
         self.pathVesselItem2 = QGraphicsPathItem()
         self.pathVesselItem2.setPen(QPen(Qt.yellow, 2))
 
-        if self.lview_plaque1:
-            first_idx = min([i for i in range(len(self.lview_plaque1)) if self.lview_plaque1[i] is not None])
+        contour_frames = [i for i in range(len(self.lview_plaque1)) if self.lview_plaque1[i] is not None]
+        if contour_frames:
+            first_idx = min(contour_frames)
             v1 = QPointF(self.lview_plaqueY[first_idx], self.lview_plaque1[first_idx])
             v2 = QPointF(self.lview_plaqueY[first_idx], self.lview_plaque2[first_idx])
             pathVessel1 = QPainterPath(v1)
             pathVessel2 = QPainterPath(v2)
-            print('fffff', len(self.lview_plaqueY), self.lview_plaqueY[0], len(self.lview_plaque1))
             for i in range(first_idx, len(self.lview_plaque1)):
                     #path1.lineTo(self.lviewX1[i], self.lviewY[i])
                 if self.lview_plaque1[i] is None:
