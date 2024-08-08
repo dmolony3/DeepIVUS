@@ -596,7 +596,7 @@ class Master(QMainWindow):
 
             self.wid.setData(self.lumen, self.plaque, self.stent, self.images)
 
-            # creaet lview data
+            # create lview data
             self.lview_data = LViewData(self.images.shape)
             lview_array = self.lview_data.update(self.images, self.current_angle)
 
@@ -654,6 +654,10 @@ class Master(QMainWindow):
             lumen_area, plaque_area, plaque_burden = self.metrics
             self.updateAreaDisplay(lumen_area, plaque_area, plaque_burden, self.slider.value())
     
+            # recreate lview scene
+            lview_array = self.lview_data.update(self.images, self.current_angle)
+            self.lview.createScene(lview_array)
+
             self.lview_lumenY = [self.lview_length*(frame/self.numberOfFrames) for frame in range(self.numberOfFrames)]
             self.lview_plaqueY = [self.lview_length*(frame/self.numberOfFrames) for frame in range(self.numberOfFrames)]
             self.lview_lumen, self.lview_lumen1, self.lview_lumen2 = self.getLviewCoordinates(self.lumen)
@@ -912,6 +916,9 @@ class Master(QMainWindow):
         lumen_frames = [i for i in range(len(self.lumen[0])) if self.lumen[0][i]]
         plaque_frames = [i for i in range(len(self.plaque[0])) if self.plaque[0][i]]
 
+        # recreate lview scene
+        lview_array = self.lview_data.update(self.images, self.current_angle)
+        self.lview.createScene(lview_array)
 
         self.lview_lumenY = [self.lview_length*(frame/self.numberOfFrames) for frame in range(self.numberOfFrames)]
         self.lview_plaqueY = [self.lview_length*(frame/self.numberOfFrames) for frame in range(self.numberOfFrames)]
